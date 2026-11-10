@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MakerLens: Free Etsy Profit Calculator</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='13' cy='13' r='10' fill='%23e3efe9' stroke='%232f6f5e' stroke-width='3'/%3E%3Cline x1='20.5' y1='20.5' x2='29' y2='29' stroke='%232f6f5e' stroke-width='4' stroke-linecap='round'/%3E%3Crect x='8' y='13' width='3' height='5' rx='1' fill='%232f6f5e'/%3E%3Crect x='12' y='10' width='3' height='8' rx='1' fill='%232f6f5e'/%3E%3Crect x='16' y='7' width='3' height='11' rx='1' fill='%232f6f5e'/%3E%3C/svg%3E">
+<meta name="description" content="See your real Etsy shop profit after every fee, and a transparent cash-flow forecast. Free, and your data never leaves your browser.">
+<style>
+:root{
+  --bg:#f7f6f3; --card:#ffffff; --text:#1d1d1f; --muted:#6b6b70; --line:#e4e2dc;
+  --accent:#2f6f5e; --accent-soft:#e3efe9; --bad:#b3261e; --bad-soft:#fbe9e7; --warn:#8a5a00; --warn-soft:#fdf3dc;
+  --bar:#2f6f5e; --bar-forecast:#9cc7b8; --range:#6b6b70;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#141416; --card:#1e1e21; --text:#ececee; --muted:#a0a0a6; --line:#323236;
+    --accent:#6cc3a5; --accent-soft:#1f3a31; --bad:#ff8a80; --bad-soft:#3a1f1d; --warn:#f2c46b; --warn-soft:#3a3020;
+    --bar:#6cc3a5; --bar-forecast:#3f7a66; --range:#a0a0a6;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:0 16px}
+header{border-bottom:1px solid var(--line);background:var(--card)}
+header .wrap{display:flex;align-items:center;justify-content:space-between;height:56px}
+.logo{font-weight:700;font-size:18px;letter-spacing:-.2px}
+.logo .lens{color:var(--accent)}
+.logo{display:flex;align-items:center;gap:8px}
+.logo-icon{width:26px;height:26px;flex-shrink:0}
+select,input,button{font:inherit;color:inherit}
+select,input[type=number]{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+button{cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--card);padding:10px 16px}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+@media (prefers-color-scheme: dark){button.primary{color:#0f1f19}}
+button:disabled{opacity:.5;cursor:not-allowed}
+.hero{padding:56px 0 32px}
+.hero h1{font-size:clamp(28px,5vw,42px);line-height:1.15;margin:0 0 12px;letter-spacing:-.5px}
+.hero p.lead{font-size:18px;color:var(--muted);margin:0 0 20px;max-width:640px}
+.hero ul{padding-left:20px;margin:0 0 20px}
+.hero li{margin:4px 0}
+.privacy{display:inline-block;background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:6px 12px;font-size:14px;font-weight:600;margin-bottom:20px}
+.btns{display:flex;gap:10px;flex-wrap:wrap}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin:16px 0}
+.card h2{font-size:20px;margin:0 0 4px}
+.card .sub{color:var(--muted);font-size:14px;margin:0 0 16px}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:20px;text-align:center;color:var(--muted)}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop strong{color:var(--text)}
+.filelist{font-size:14px;margin:10px 0 0;text-align:left}
+.filelist li{margin:2px 0}
+details{margin-top:14px}
+summary{cursor:pointer;font-weight:600}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.stat{background:var(--bg);border-radius:12px;padding:14px}
+.stat .label{color:var(--muted);font-size:13px}
+.stat .value{font-size:24px;font-weight:700;letter-spacing:-.3px}
+.stat.highlight{background:var(--accent-soft)}
+.stat.highlight .value{color:var(--accent)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left;white-space:normal}
+th{color:var(--muted);font-weight:600}
+tr.loss td{background:var(--bad-soft)}
+.neg{color:var(--bad);font-weight:600}
+.tablewrap{overflow-x:auto}
+.cost-input{width:90px;text-align:right}
+.note{font-size:13px;color:var(--muted);margin-top:10px}
+.warn{background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:14px;margin-top:12px}
+.controls{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;margin-bottom:12px;font-size:14px}
+.months{display:flex;flex-wrap:wrap;gap:6px}
+.months label{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:13px;cursor:pointer;user-select:none}
+.months input{display:none}
+.months label.on{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (prefers-color-scheme: dark){.months label.on{color:#0f1f19}}
+.chart svg{width:100%;height:auto;display:block}
+.chart text{fill:var(--muted);font-size:11px}
+.badge{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;margin-left:8px;vertical-align:middle}
+.badge.ok{background:var(--accent-soft);color:var(--accent)}
+.badge.mid{background:var(--warn-soft);color:var(--warn)}
+.feebar{display:flex;align-items:center;gap:10px;margin:6px 0;font-size:14px}
+.feebar .name{width:160px;flex-shrink:0}
+.feebar .track{flex:1;background:var(--bg);border-radius:6px;height:12px;overflow:hidden}
+.feebar .fill{height:100%;background:var(--bar)}
+.feebar .amt{width:90px;text-align:right;flex-shrink:0}
+footer{color:var(--muted);font-size:13px;padding:32px 0 48px;text-align:center}
+.hidden{display:none}
+.toprow{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:24px}
+.toprow h2{margin:0}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="logo">
+      <svg class="logo-icon" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="13" cy="13" r="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="3"/>
+        <line x1="20.5" y1="20.5" x2="29" y2="29" stroke="var(--accent)" stroke-width="4" stroke-linecap="round"/>
+        <rect x="8" y="13" width="3" height="5" rx="1" fill="var(--accent)"/>
+        <rect x="12" y="10" width="3" height="8" rx="1" fill="var(--accent)"/>
+        <rect x="16" y="7" width="3" height="11" rx="1" fill="var(--accent)"/>
+      </svg>
+      <span>Maker<span class="lens">Lens</span></span>
+    </div>
+    <label style="font-size:14px">Currency
+      <select id="currency">
+        <option value="$">$ USD</option>
+        <option value="£">£ GBP</option>
+        <option value="€">€ EUR</option>
+      </select>
+    </label>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ============ LANDING ============ -->
+  <section id="landing">
+    <div class="hero">
+      <h1>See your real Etsy profit after every fee, in 30 seconds.</h1>
+      <p class="lead">Etsy shows you sales. MakerLens shows you what you actually keep, and what the next months could look like.</p>
+      <ul>
+        <li><strong>Real profit</strong> after transaction, processing, listing, ad and shipping-label fees</li>
+        <li><strong>Profit per product</strong>, so you can see which items lose money</li>
+        <li><strong>What you could earn in the coming months</strong>, including your busy seasons, and we show exactly how we worked it out</li>
+      </ul>
+      <div class="privacy">🔒 100% free. No sign-up. Your data never leaves your browser.</div>
+      <div class="btns">
+        <button class="primary" id="trySample">Try with sample data</button>
+        <button id="goUpload">Upload my Etsy files</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="uploadCard">
+      <h2>Upload your files</h2>
+      <p class="sub">Add the files Etsy lets you download (they end in .csv). We work out which file is which automatically.</p>
+      <div class="drop" id="drop">
+        <p><strong>Drag & drop your Etsy files</strong> or <label style="color:var(--accent);cursor:pointer;text-decoration:underline">browse<input type="file" id="fileInput" accept=".csv,text/csv" multiple hidden></label></p>
+        <p style="font-size:14px;margin:0">Needed: <strong>monthly statement(s)</strong>. Optional: <strong>Order Items</strong> file (for profit per product).</p>
+        <ul class="filelist" id="fileList"></ul>
+      </div>
+      <details>
+        <summary>How do I download these files from Etsy?</summary>
+        <ol style="font-size:14px">
+          <li><strong>Monthly statements:</strong> Shop Manager → Finances → Monthly statements → choose a month → Download CSV. Do this for each month you want (more months = better forecast; 12 months lets us detect your busy season automatically).</li>
+          <li><strong>Order Items (optional):</strong> Shop Manager → Settings → Options → Download Data → choose "Order Items", pick the year → Download CSV.</li>
+        </ol>
+        <p class="note">Etsy sometimes moves these menus. If something looks different, look for "Download Data" or "Monthly statements".</p>
+      </details>
+      <div class="btns" style="margin-top:16px">
+        <button class="primary" id="analyzeBtn" disabled>Analyze my shop</button>
+      </div>
+      <div id="uploadMsg"></div>
+    </div>
+  </section>
+
+  <!-- ============ APP ============ -->
+  <section id="app" class="hidden">
+    <div class="toprow">
+      <h2 id="shopTitle">Your shop</h2>
+      <button id="startOver">Start over</button>
+    </div>
+
+    <div class="card">
+      <h2>Overview</h2>
+      <p class="sub" id="periodText"></p>
+      <div class="grid" id="stats"></div>
+      <div id="materialsNote"></div>
+    </div>
+
+    <div class="card">
+      <h2>Where your money goes</h2>
+      <p class="sub">Every Etsy fee in the period, biggest first.</p>
+      <div id="feeBars"></div>
+    </div>
+
+    <div class="card" id="productsCard">
+      <h2>Profit per product</h2>
+      <p class="sub">Type in what one item costs you to make (materials + packaging). Products losing money are shown in red.</p>
+      <div class="tablewrap"><table id="productTable"></table></div>
+      <p class="note" id="feeNote"></p>
+    </div>
+
+    <div class="card">
+      <h2>Profit by month</h2>
+      <p class="sub">What you kept each month after Etsy fees and your material costs.</p>
+      <div class="chart" id="monthChart"></div>
+    </div>
+
+    <div class="card">
+      <h2>Your next months: what you could earn <span class="badge" id="confBadge"></span></h2>
+      <p class="sub">Cash-flow forecast: an estimate based on your own past results. Not a guarantee.</p>
+      <div class="controls">
+        <label>Look ahead
+          <select id="horizon">
+            <option value="3">3 months</option>
+            <option value="6" selected>6 months</option>
+            <option value="12">12 months</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="autoSeason" checked> Detect busy season from my data (needs 12+ months)</label>
+      </div>
+      <div id="manualSeason">
+        <div class="controls" style="margin-bottom:6px">
+          <span>My busy months:</span>
+          <label>they're about <input type="number" id="boost" value="30" min="0" max="500" style="width:70px">% busier</label>
+        </div>
+        <div class="months" id="monthPicker"></div>
+      </div>
+      <div class="grid" id="forecastStats" style="margin-top:16px"></div>
+      <div class="chart" id="forecastChart" style="margin-top:12px"></div>
+      <div id="forecastWarn"></div>
+      <div class="tablewrap" style="margin-top:12px"><table id="forecastTable"></table></div>
+      <details open>
+        <summary>How we calculated this</summary>
+        <div id="method" style="font-size:14px"></div>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  MakerLens is a free student project, built by Bruno, a Computer Science &amp; Business student at Northeastern University.<br>
+  Not affiliated with Etsy. Figures are for guidance only, not financial or tax advice.
+</footer>
+
+<script>
+/* =========================================================
+   MakerLens v1. Everything runs in the browser.
+   ========================================================= */
+
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTHS_LONG = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+const state = {
+  statementRows: [],
+  itemRows: [],
+  files: [],               // {name, kind, rows}
+  currency: "$",
+  costs: {},               // product name -> cost per unit
+  materialsPct: 0,         // fallback when no Order Items file
+  horizon: 6,
+  autoSeason: true,
+  busyMonths: new Set([10, 11]), // Nov, Dec (0-based)
+  boost: 30,
+  isSample: false,
+};
+
+/* ---------- small helpers ---------- */
+function safeGet(key, fallback){ try{ const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }catch(e){ return fallback; } }
+function safeSet(key, value){ try{ localStorage.setItem(key, JSON.stringify(value)); }catch(e){} }
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function sum(arr){ return arr.reduce((a,b)=>a+b,0); }
+function avg(arr){ return arr.length ? sum(arr)/arr.length : 0; }
+function fmt(n, opts={}){
+  const sign = n < 0 ? "−" : (opts.plus && n > 0 ? "+" : "");
+  const abs = Math.abs(n);
+  const digits = opts.round ? 0 : 2;
+  return sign + state.currency + abs.toLocaleString("en-US",{minimumFractionDigits:digits, maximumFractionDigits:digits});
+}
+function seasonLabel(f){ const d = Math.round((f - 1) * 100); return d === 0 ? "normal" : (d > 0 ? "+" : "−") + Math.abs(d) + "%"; }
+function pct(n){ return (isFinite(n) ? (n*100).toFixed(1).replace("-", "−") : "0.0") + "%"; }
+function monthKey(d){ return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0"); }
+function keyToLabel(k){ const [y,m] = k.split("-"); return MONTHS[+m-1] + " " + y.slice(2); }
+function nextKey(k, n){ const [y,m] = k.split("-").map(Number); const d = new Date(y, m-1+n, 1); return monthKey(d); }
+
+/* ---------- CSV parsing (handles quotes, commas inside quotes, BOM) ---------- */
+function parseCSV(text){
+  text = text.replace(/^﻿/, "");
+  const rows = []; let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++){
+    const c = text[i];
+    if (inQuotes){
+      if (c === '"'){
+        if (text[i+1] === '"'){ field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (c !== "\r") field += c;
+  }
+  if (field !== "" || row.length) { row.push(field); rows.push(row); }
+  if (!rows.length) return [];
+  const header = rows.shift().map(h => h.trim());
+  return rows
+    .filter(r => r.some(v => v.trim() !== ""))
+    .map(r => Object.fromEntries(header.map((h, j) => [h, (r[j] || "").trim()])));
+}
+
+// Read a money value like "$1,234.50", "-$0.20", "(3.00)", "--", "£4.10"
+function money(v){
+  if (v == null) return 0;
+  v = String(v).trim();
+  if (v === "" || v === "--") return 0;
+  let neg = false;
+  if (/^\(.*\)$/.test(v)) { neg = true; v = v.slice(1, -1); }
+  if (v.includes("-")) neg = !neg;
+  v = v.replace(/[^0-9.,]/g, "").replace(/,/g, "");
+  const n = parseFloat(v) || 0;
+  return neg ? -n : n;
+}
+
+function parseDate(v){
+  if (!v) return null;
+  const m = String(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); // MM/DD/YY(YY)
+  if (m){ let y = +m[3]; if (y < 100) y += 2000; return new Date(y, +m[1]-1, +m[2]); }
+  const d = new Date(v);
+  return isNaN(d) ? null : d;
+}
+
+// Find a column by exact name first, then by "contains"
+function col(row, ...names){
+  const keys = Object.keys(row);
+  for (const n of names){ const k = keys.find(k => k.toLowerCase() === n.toLowerCase()); if (k !== undefined) return row[k]; }
+  for (const n of names){ const k = keys.find(k => k.toLowerCase().includes(n.toLowerCase())); if (k !== undefined) return row[k]; }
+  return undefined;
+}
+
+function detectKind(rows){
+  if (!rows.length) return "unknown";
+  const h = Object.keys(rows[0]).map(k => k.toLowerCase());
+  if (h.includes("type") && h.includes("net")) return "statement";
+  if (h.some(k => k.includes("item name")) || (h.includes("quantity") && h.some(k => k.includes("item total")))) return "items";
+  return "unknown";
+}
+
+/* ---------- the core calculations ---------- */
+function feeBucket(type){
+  if (type.includes("transaction")) return "Transaction fees";
+  if (type.includes("listing")) return "Listing fees";
+  if (type.includes("marketing") || type.includes("offsite")) return "Ads & marketing";
+  if (type.includes("shipping") || type.includes("postage") || type.includes("label")) return "Shipping labels";
+  if (type.includes("subscription")) return "Subscription";
+  if (type.includes("tax") || type.includes("vat") || type.includes("gst")) return "Tax on fees";
+  return "Other fees";
+}
+
+// Etsy statement rows mention the order like "Order #1234" in the Info or Title column
+function orderId(r){
+  const text = (col(r, "Info") || "") + " " + (col(r, "Title") || "");
+  const m = text.match(/order\s*#?\s*(\d+)/i);
+  return m ? m[1] : null;
+}
+
+function analyze(){
+  const months = {};
+  const ensure = k => (months[k] ??= { sales:0, fees:0, refunds:0, net:0, materials:0 });
+  const fees = {};
+  const costLines = []; // every fee/refund line: { order, title, amount (negative) }
+  let gross = 0, refunds = 0;
+
+  // 1) Monthly statements: money in, every fee
+  for (const r of state.statementRows){
+    const type = (col(r, "Type") || "").toLowerCase();
+    const d = parseDate(col(r, "Date"));
+    if (!d) continue;
+    if (type === "deposit" || type === "payment") continue; // money moving to/from your bank, not profit
+    const m = ensure(monthKey(d));
+    const amount = money(col(r, "Amount"));
+    const feeTax = money(col(r, "Fees & Taxes"));
+    const net = money(col(r, "Net"));
+    if (type === "sale"){
+      gross += amount; m.sales += amount;
+      if (feeTax){ fees["Payment processing"] = (fees["Payment processing"] || 0) + feeTax; m.fees += feeTax; }
+      if (feeTax) costLines.push({ order:orderId(r), title:"", amount:feeTax });
+    } else if (type === "refund"){
+      refunds += net; m.refunds += net;
+      costLines.push({ order:orderId(r), title:"", amount:net });
+    } else {
+      const b = feeBucket(type);
+      fees[b] = (fees[b] || 0) + net; m.fees += net;
+      costLines.push({ order:orderId(r), title:col(r, "Title") || "", amount:net });
+    }
+    m.net += net;
+  }
+  const totalFees = sum(Object.values(fees)); // negative number
+
+  // 2) Order Items: which products sold, and material costs
+  const products = {};
+  const orders = {}; // order number -> [{ name, revenue }]
+  for (const r of state.itemRows){
+    const name = col(r, "Item Name", "Title") || "Unnamed item";
+    const qty = parseFloat(col(r, "Quantity")) || 1;
+    let revenue = money(col(r, "Item Total"));
+    if (!revenue) revenue = money(col(r, "Price")) * qty;
+    const p = (products[name] ??= { name, units:0, revenue:0 });
+    p.units += qty; p.revenue += revenue;
+    const oid = String(col(r, "Order ID") || "").replace(/\D/g, "");
+    if (oid) (orders[oid] ??= []).push({ name, revenue });
+    const d = parseDate(col(r, "Sale Date", "Date Paid", "Date"));
+    if (d) ensure(monthKey(d)).materials += (state.costs[name] || 0) * qty;
+  }
+  const hasItems = Object.keys(products).length > 0;
+
+  // Fallback: no Order Items file -> materials as % of sales
+  if (!hasItems) for (const k in months) months[k].materials = months[k].sales * state.materialsPct / 100;
+
+  const productList = Object.values(products);
+  const itemRevenue = sum(productList.map(p => p.revenue));
+
+  // Fair fee split:
+  //  - a fee linked to an order goes to the products in THAT order
+  //    (e.g. a $4.85 shipping label is charged to the item that was shipped)
+  //  - "Transaction fee: <product>" goes straight to that product
+  //  - shop-wide costs (monthly Etsy Ads, subscription...) are shared by sales
+  for (const p of productList) p.fees = 0;
+  let shopWide = 0, linked = 0;
+  for (const c of costLines){
+    const items = c.order ? orders[c.order] : null;
+    if (!items){ shopWide += c.amount; continue; }
+    linked += c.amount;
+    const named = items.find(it => c.title && c.title.toLowerCase().includes(it.name.toLowerCase()));
+    if (named){ products[named.name].fees += c.amount; continue; }
+    const orderTotal = sum(items.map(it => it.revenue));
+    for (const it of items) products[it.name].fees += c.amount * (orderTotal ? it.revenue / orderTotal : 1 / items.length);
+  }
+  for (const p of productList) p.fees += shopWide * (itemRevenue ? p.revenue / itemRevenue : 0);
+  const feeSplit = { linked, shopWide, exact: costLines.length > 0 && linked !== 0 };
+
+  for (const p of productList){
+    p.materials = (state.costs[p.name] || 0) * p.units;
+    p.profit = p.revenue + p.fees - p.materials;
+    p.profitPerUnit = p.units ? p.profit / p.units : 0;
+    p.margin = p.revenue ? p.profit / p.revenue : 0;
+  }
+  productList.sort((a, b) => b.profit - a.profit);
+
+  const keys = Object.keys(months).sort();
+  for (const k of keys) months[k].profit = months[k].net - months[k].materials;
+  const materials = sum(keys.map(k => months[k].materials));
+  const payout = sum(keys.map(k => months[k].net));
+  const profit = payout - materials;
+
+  return { months, keys, fees, totalFees, gross, refunds, payout, materials, profit, productList, hasItems, feeSplit };
+}
+
+/* ---------- forecast ---------- */
+function forecast(a){
+  const { months, keys } = a;
+  if (!keys.length) return null;
+  const factor = new Array(12).fill(1);
+  let method = "flat";
+
+  if (state.autoSeason && keys.length >= 12){
+    const last12 = keys.slice(-12);
+    const sales = last12.map(k => months[k].sales);
+    const mean = avg(sales);
+    if (mean > 0){
+      last12.forEach((k, i) => { factor[+k.slice(5) - 1] = Math.max(sales[i] / mean, 0.05); });
+      method = "auto";
+    }
+  }
+  if (method === "flat" && state.busyMonths.size){
+    // spread the boost so the year still averages out sensibly
+    for (const m of state.busyMonths) factor[m] = 1 + state.boost / 100;
+    method = "manual";
+  }
+
+  // Base = average of the last (up to) 6 months, with the seasonal effect removed
+  const recent = keys.slice(-6);
+  const base = avg(recent.map(k => months[k].profit / factor[+k.slice(5) - 1]));
+
+  const rows = [];
+  const last = keys[keys.length - 1];
+  for (let i = 1; i <= state.horizon; i++){
+    const k = nextKey(last, i);
+    const mIdx = +k.slice(5) - 1;
+    const value = base * factor[mIdx];
+    const spread = Math.abs(value) * (0.10 + 0.025 * i) + Math.abs(base) * 0.02;
+    rows.push({ key:k, value, low:value - spread, high:value + spread, factor:factor[mIdx] });
+  }
+  return { rows, base, factor, method, recentCount: recent.length };
+}
+
+/* ---------- SVG bar chart ---------- */
+function barChart(items, opts = {}){
+  // items: {label, value, kind:'actual'|'forecast', low?, high?}
+  const W = 900, H = 260, padL = 64, padR = 10, padT = 14, padB = 36;
+  const vals = items.flatMap(it => [it.value, it.low ?? it.value, it.high ?? it.value, 0]);
+  let max = Math.max(...vals), min = Math.min(...vals);
+  if (max === min) max = min + 1;
+  const range = max - min;
+  const y = v => padT + (max - v) / range * (H - padT - padB);
+  const bw = (W - padL - padR) / items.length;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label || "chart")}">`;
+  // gridlines
+  for (let i = 0; i <= 4; i++){
+    const v = min + range * i / 4;
+    svg += `<line x1="${padL}" x2="${W-padR}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/>`;
+    svg += `<text x="${padL-8}" y="${y(v)+4}" text-anchor="end">${esc(fmt(v,{round:true}))}</text>`;
+  }
+  svg += `<line x1="${padL}" x2="${W-padR}" y1="${y(0)}" y2="${y(0)}" stroke="var(--muted)"/>`;
+  items.forEach((it, i) => {
+    const x = padL + i * bw + bw * 0.15, w = bw * 0.7;
+    const top = Math.min(y(it.value), y(0)), h = Math.abs(y(it.value) - y(0));
+    const fill = it.value < 0 ? "var(--bad)" : (it.kind === "forecast" ? "var(--bar-forecast)" : "var(--bar)");
+    svg += `<rect x="${x}" y="${top}" width="${w}" height="${Math.max(h,1)}" rx="3" fill="${fill}"><title>${esc(it.label)}: ${esc(fmt(it.value))}</title></rect>`;
+    if (it.low != null){
+      const cx = x + w/2;
+      svg += `<line x1="${cx}" x2="${cx}" y1="${y(it.high)}" y2="${y(it.low)}" stroke="var(--range)" stroke-width="1.5"/>`;
+      svg += `<line x1="${cx-6}" x2="${cx+6}" y1="${y(it.high)}" y2="${y(it.high)}" stroke="var(--range)" stroke-width="1.5"/>`;
+      svg += `<line x1="${cx-6}" x2="${cx+6}" y1="${y(it.low)}" y2="${y(it.low)}" stroke="var(--range)" stroke-width="1.5"/>`;
+    }
+    if (items.length <= 14 || i % 2 === 0)
+      svg += `<text x="${x + w/2}" y="${H - 14}" text-anchor="middle">${esc(it.label)}</text>`;
+  });
+  return svg + "</svg>";
+}
+
+/* ---------- rendering ---------- */
+function render(){
+  const a = analyze();
+  const $ = id => document.getElementById(id);
+
+  if (!a.keys.length){
+    $("uploadMsg").innerHTML = `<div class="warn">We couldn't find any dated rows in your monthly statement. Check that you added your monthly statement file.</div>`;
+    return;
+  }
+
+  $("shopTitle").textContent = state.isSample ? "Sample shop: Willow & Wick Candles" : "Your shop";
+  $("periodText").textContent = `${MONTHS_LONG[+a.keys[0].slice(5)-1]} ${a.keys[0].slice(0,4)} to ${MONTHS_LONG[+a.keys.at(-1).slice(5)-1]} ${a.keys.at(-1).slice(0,4)} · ${a.keys.length} month${a.keys.length>1?"s":""} of data`;
+
+  const margin = a.gross ? a.profit / a.gross : 0;
+  $("stats").innerHTML = [
+    ["Total sales", fmt(a.gross)],
+    ["Etsy fees", fmt(a.totalFees)],
+    ["Refunds", fmt(a.refunds)],
+    ["Your material costs", fmt(-a.materials)],
+    ["Real profit", fmt(a.profit), true],
+    ["% of each sale you keep", pct(margin), true],
+  ].map(([l, v, hl]) => `<div class="stat${hl?" highlight":""}"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+
+  // materials note / fallback input
+  if (!a.hasItems){
+    $("materialsNote").innerHTML = `<div class="warn">No Order Items file, so we can't see per-product costs. Enter your material costs as a % of sales:
+      <input type="number" id="matPct" min="0" max="100" value="${state.materialsPct}" style="width:70px">%</div>`;
+    $("matPct").addEventListener("change", e => { state.materialsPct = parseFloat(e.target.value) || 0; render(); });
+    $("productsCard").classList.add("hidden");
+  } else {
+    const missing = a.productList.filter(p => !state.costs[p.name]).length;
+    $("materialsNote").innerHTML = missing ? `<div class="warn">${missing} product${missing>1?"s":""} still ${missing>1?"have":"has"} no material cost. Add them below for an accurate profit.</div>` : "";
+    $("productsCard").classList.remove("hidden");
+  }
+
+  // fee bars
+  const feeEntries = Object.entries(a.fees).filter(([,v]) => Math.abs(v) > 0.004).sort((x, y) => x[1] - y[1]);
+  const maxFee = Math.max(...feeEntries.map(([,v]) => Math.abs(v)), 1);
+  $("feeBars").innerHTML = feeEntries.map(([k, v]) => `
+    <div class="feebar"><div class="name">${esc(k)}</div>
+    <div class="track"><div class="fill" style="width:${Math.abs(v)/maxFee*100}%"></div></div>
+    <div class="amt">${fmt(v)}</div></div>`).join("") +
+    `<p class="note">Fees took <strong>${pct(a.gross ? -a.totalFees / a.gross : 0)}</strong> of your sales.</p>`;
+
+  // product table (only rebuild rows, keep focus on inputs)
+  if (a.hasItems){
+    const pctLinked = (a.feeSplit.linked + a.feeSplit.shopWide) ? a.feeSplit.linked / (a.feeSplit.linked + a.feeSplit.shopWide) : 0;
+    $("feeNote").innerHTML = a.feeSplit.exact
+      ? `<strong>${Math.round(pctLinked * 100)}%</strong> of your fees and refunds are matched to the exact order they came from (so a shipping label is charged to the item that was shipped). The rest (shop-wide costs like monthly Etsy Ads) is shared between products by their sales.`
+      : `Etsy fees and refunds are shared between products by their sales. That part is an estimate, because we couldn't match fees to individual orders in your files.`;
+    const table = $("productTable");
+    const active = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.product : null;
+    const profitable = a.productList.filter(p => p.profit > 0);
+    const topEarner = profitable.length ? profitable[0].name : null; // list is sorted by profit
+    const bestMargin = profitable.length > 1 ? profitable.reduce((b, p) => p.margin > b.margin ? p : b).name : null;
+    const tags = p => (p.name === topEarner ? ' <span class="badge ok" title="Made the most profit in total">⭐ Top earner</span>' : "") +
+                      (p.name === bestMargin ? ' <span class="badge ok" title="Keeps the biggest share of each sale">💎 Best margin</span>' : "");
+    table.innerHTML = `<tr><th>Product</th><th>Units</th><th>Sales</th><th>Etsy fees &amp; refunds (est.)</th><th>Cost per item</th><th>Profit</th><th>Per item</th><th>% you keep</th></tr>` +
+      a.productList.map(p => `<tr class="${p.profit < 0 ? "loss" : ""}">
+        <td>${p.name === topEarner ? `<strong>${esc(p.name)}</strong>` : esc(p.name)}${tags(p)}${p.profit < 0 ? ' <span class="neg">· losing money</span>' : ""}</td>
+        <td>${p.units}</td><td>${fmt(p.revenue)}</td><td>${fmt(p.fees)}</td>
+        <td><input class="cost-input" type="number" min="0" step="0.01" data-product="${esc(p.name)}" value="${state.costs[p.name] ?? ""}" placeholder="0.00"></td>
+        <td class="${p.profit<0?"neg":""}">${fmt(p.profit)}</td><td class="${p.profit<0?"neg":""}">${fmt(p.profitPerUnit)}</td><td>${pct(p.margin)}</td></tr>`).join("");
+    table.querySelectorAll(".cost-input").forEach(inp => {
+      inp.addEventListener("change", e => {
+        const v = parseFloat(e.target.value);
+        if (isNaN(v)) delete state.costs[e.target.dataset.product]; else state.costs[e.target.dataset.product] = v;
+        if (!state.isSample) safeSet("makerlens-costs", state.costs);
+        render();
+      });
+    });
+    if (active){ const el = table.querySelector(`[data-product="${CSS.escape(active)}"]`); if (el) el.focus(); }
+  }
+
+  // monthly chart
+  $("monthChart").innerHTML = barChart(a.keys.map(k => ({ label:keyToLabel(k), value:a.months[k].profit, kind:"actual" })), { label:"Profit by month" });
+
+  renderForecast(a);
+}
+
+function renderForecast(a){
+  const $ = id => document.getElementById(id);
+  const f = forecast(a);
+  if (!f) return;
+  const canAuto = a.keys.length >= 12;
+  $("autoSeason").disabled = !canAuto;
+  if (!canAuto) $("autoSeason").checked = false;
+  $("manualSeason").classList.toggle("hidden", f.method === "auto");
+
+  const conf = state.horizon <= 3 ? ["Normal confidence","ok"] : state.horizon <= 6 ? ["Estimate","mid"] : ["Rough estimate","mid"];
+  $("confBadge").textContent = conf[0]; $("confBadge").className = "badge " + conf[1];
+
+  const total = sum(f.rows.map(r => r.value));
+  // quarters
+  const quarters = {};
+  for (const r of f.rows){ const q = `Q${Math.floor((+r.key.slice(5)-1)/3)+1} ${r.key.slice(0,4)}`; quarters[q] = (quarters[q] || 0) + r.value; }
+  $("forecastStats").innerHTML =
+    `<div class="stat highlight"><div class="label">Next ${state.horizon} months (total)</div><div class="value">${fmt(total,{round:true})}</div></div>` +
+    Object.entries(quarters).map(([q, v]) => `<div class="stat"><div class="label">${q}${f.rows.filter(r=>`Q${Math.floor((+r.key.slice(5)-1)/3)+1} ${r.key.slice(0,4)}`===q).length<3?" (part)":""}</div><div class="value">${fmt(v,{round:true})}</div></div>`).join("");
+
+  const history = a.keys.slice(-6).map(k => ({ label:keyToLabel(k), value:a.months[k].profit, kind:"actual" }));
+  const future = f.rows.map(r => ({ label:keyToLabel(r.key), value:r.value, low:r.low, high:r.high, kind:"forecast" }));
+  $("forecastChart").innerHTML = barChart(history.concat(future), { label:"Forecast" }) +
+    `<p class="note">Dark bars = your real last months. Light bars = forecast. The lines show a likely range (best/worst case), which gets wider the further ahead we look.</p>`;
+
+  const risky = f.rows.filter(r => r.low < 0);
+  $("forecastWarn").innerHTML = risky.length ? `<div class="warn">⚠ ${risky.map(r => keyToLabel(r.key)).join(", ")}: in the worst case you could lose money in ${risky.length>1?"these months":"this month"}. Keep some cash aside.</div>` : "";
+
+  $("forecastTable").innerHTML = `<tr><th>Month</th><th>Busy-season effect</th><th>Slow month</th><th>Expected profit</th><th>Good month</th></tr>` +
+    f.rows.map(r => `<tr><td>${MONTHS_LONG[+r.key.slice(5)-1]} ${r.key.slice(0,4)}</td><td>${seasonLabel(r.factor)}</td><td>${fmt(r.low,{round:true})}</td><td><strong>${fmt(r.value,{round:true})}</strong></td><td>${fmt(r.high,{round:true})}</td></tr>`).join("");
+
+  const seasonText = f.method === "auto"
+    ? `<li><strong>Busy seasons:</strong> detected automatically from your last 12 months. We compare each month's sales with your average month. For example, +100% means that month is usually twice as busy as average, and −30% means it's quieter.</li>`
+    : f.method === "manual"
+      ? `<li><strong>Busy seasons:</strong> you marked ${[...state.busyMonths].sort((x,y)=>x-y).map(m=>MONTHS[m]).join(", ")} as ${state.boost}% busier. All other months count as normal.</li>`
+      : `<li><strong>Busy seasons:</strong> none set, so every month counts as normal.</li>`;
+  $("method").innerHTML = `<ol>
+    <li><strong>Starting point:</strong> your average monthly profit over the last ${f.recentCount} month${f.recentCount>1?"s":""}, with seasonal ups and downs removed, = <strong>${fmt(f.base)}</strong>. Profit means: what Etsy paid you after all fees and refunds, minus your material costs.</li>
+    ${seasonText}
+    <li><strong>Forecast for each month</strong> = starting point, adjusted by that month's busy-season effect (e.g. +30% makes it 30% higher).</li>
+    <li><strong>Slow month / good month range:</strong> ±10% of the forecast, plus 2.5% more for every month further ahead, because the future is less certain the further out you look.</li>
+  </ol>
+  <p class="note">This is a simple, transparent model, not a crystal ball. New products, price changes, ads or Etsy fee changes will all change the real result.</p>`;
+}
+
+/* ---------- month picker ---------- */
+function buildMonthPicker(){
+  const el = document.getElementById("monthPicker");
+  el.innerHTML = MONTHS.map((m, i) => `<label class="${state.busyMonths.has(i)?"on":""}"><input type="checkbox" value="${i}" ${state.busyMonths.has(i)?"checked":""}>${m}</label>`).join("");
+  el.querySelectorAll("input").forEach(inp => inp.addEventListener("change", e => {
+    const i = +e.target.value;
+    if (e.target.checked) state.busyMonths.add(i); else state.busyMonths.delete(i);
+    e.target.parentElement.classList.toggle("on", e.target.checked);
+    render();
+  }));
+}
+
+/* ---------- files ---------- */
+function handleFiles(fileList){
+  const files = [...fileList].filter(f => /\.csv$/i.test(f.name) || f.type === "text/csv");
+  if (!files.length) return;
+  Promise.all(files.map(f => f.text().then(t => {
+    const rows = parseCSV(t);
+    return { name:f.name, kind:detectKind(rows), rows };
+  }))).then(parsed => {
+    for (const p of parsed){
+      state.files = state.files.filter(x => x.name !== p.name);
+      state.files.push(p);
+    }
+    showFileList();
+  });
+}
+function showFileList(){
+  const labels = { statement:"✅ Monthly statement", items:"✅ Order Items", unknown:"⚠ Not recognised (skipped)" };
+  document.getElementById("fileList").innerHTML = state.files.map(f => `<li>${labels[f.kind]}: ${esc(f.name)} (${f.rows.length} rows)</li>`).join("");
+  document.getElementById("analyzeBtn").disabled = !state.files.some(f => f.kind === "statement");
+}
+function startAnalysis(){
+  state.statementRows = state.files.filter(f => f.kind === "statement").flatMap(f => f.rows);
+  state.itemRows = state.files.filter(f => f.kind === "items").flatMap(f => f.rows);
+  state.isSample = false;
+  state.costs = safeGet("makerlens-costs", {});
+  showApp();
+}
+function showApp(){
+  document.getElementById("landing").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+  buildMonthPicker();
+  render();
+  window.scrollTo(0, 0);
+}
+
+/* ---------- sample data: a fictional candle shop, 12 months ---------- */
+function makeSample(){
+  let seed = 7;
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const products = [
+    { name:"Lavender Soy Candle", price:24, cost:6.5 },
+    { name:"Cedarwood Candle", price:28, cost:7.5 },
+    { name:"Mini Candle Trio", price:16, cost:12.5 },
+    { name:"Holiday Gift Box", price:45, cost:15 },
+  ];
+  const season = [0.8,1.15,0.9,0.85,1.0,0.7,0.65,0.7,0.9,1.1,1.7,2.4]; // Jan..Dec
+  const statement = [["Date","Type","Title","Info","Currency","Amount","Fees & Taxes","Net"]];
+  const items = [["Sale Date","Item Name","Quantity","Price","Item Total","Currency","Order ID"]];
+  const m$ = n => (n < 0 ? "-$" : "$") + Math.abs(n).toFixed(2);
+  const longDate = d => `${MONTHS_LONG[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  const shortDate = d => `${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}/${String(d.getFullYear()).slice(2)}`;
+  let order = 1000;
+  const start = new Date(2025, 10, 1); // Nov 2025 .. Oct 2026
+  for (let mi = 0; mi < 12; mi++){
+    const monthStart = new Date(start.getFullYear(), start.getMonth() + mi, 1);
+    const days = new Date(monthStart.getFullYear(), monthStart.getMonth()+1, 0).getDate();
+    const orders = Math.round(26 * season[monthStart.getMonth()] * (0.9 + rand()*0.2));
+    for (let o = 0; o < orders; o++){
+      const d = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1 + Math.floor(rand()*days));
+      let p = products[Math.floor(rand()*3)];
+      if (monthStart.getMonth() >= 10 && rand() < 0.45) p = products[3];
+      const qty = rand() < 0.15 ? 2 : 1;
+      const total = p.price * qty;
+      const id = ++order;
+      const processing = -(total * 0.03 + 0.25);
+      statement.push([longDate(d),"Sale",`Payment for Order #${id}`,`Order #${id}`,"USD",m$(total),m$(processing),m$(total+processing)]);
+      statement.push([longDate(d),"Transaction",`Transaction fee: ${p.name}`,`Order #${id}`,"USD","--",m$(-total*0.065),m$(-total*0.065)]);
+      statement.push([longDate(d),"Listing",`Auto-renew sold: ${p.name}`,`Order #${id}`,"USD","--",m$(-0.20*qty),m$(-0.20*qty)]);
+      statement.push([longDate(d),"Shipping","USPS shipping label",`Order #${id}`,"USD","--",m$(-4.85),m$(-4.85)]);
+      if (rand() < 0.12) statement.push([longDate(d),"Marketing","Offsite Ads fee",`Order #${id}`,"USD","--",m$(-total*0.15),m$(-total*0.15)]);
+      items.push([shortDate(d), p.name, String(qty), p.price.toFixed(2), total.toFixed(2), "USD", String(id)]);
+    }
+    if (rand() < 0.5){
+      const d = new Date(monthStart.getFullYear(), monthStart.getMonth(), 20);
+      statement.push([longDate(d),"Refund","Refund to buyer","","USD","--","--",m$(-24)]);
+    }
+    const ads = new Date(monthStart.getFullYear(), monthStart.getMonth(), 28);
+    const adSpend = -(15 + rand()*10);
+    statement.push([longDate(ads),"Marketing","Etsy Ads","","USD","--",m$(adSpend),m$(adSpend)]);
+    statement.push([longDate(ads),"Deposit","Deposit to bank","","USD","--","--","--"]);
+  }
+  const toCSV = rows => rows.map(r => r.map(v => /[",\n]/.test(v) ? `"${v.replace(/"/g,'""')}"` : v).join(",")).join("\n");
+  return { statementCSV:toCSV(statement), itemsCSV:toCSV(items), costs:Object.fromEntries(products.map(p => [p.name, p.cost])) };
+}
+
+/* ---------- wire up ---------- */
+document.getElementById("trySample").addEventListener("click", () => {
+  const s = makeSample();
+  state.statementRows = parseCSV(s.statementCSV);
+  state.itemRows = parseCSV(s.itemsCSV);
+  state.costs = s.costs;
+  state.isSample = true;
+  showApp();
+});
+document.getElementById("goUpload").addEventListener("click", () => {
+  const card = document.getElementById("uploadCard");
+  card.classList.remove("hidden");
+  card.scrollIntoView({ behavior:"smooth" });
+});
+const drop = document.getElementById("drop");
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); handleFiles(e.dataTransfer.files); });
+document.getElementById("fileInput").addEventListener("change", e => handleFiles(e.target.files));
+document.getElementById("analyzeBtn").addEventListener("click", startAnalysis);
+document.getElementById("startOver").addEventListener("click", () => {
+  state.files = []; state.statementRows = []; state.itemRows = [];
+  showFileList();
+  document.getElementById("app").classList.add("hidden");
+  document.getElementById("landing").classList.remove("hidden");
+});
+document.getElementById("currency").addEventListener("change", e => {
+  state.currency = e.target.value; safeSet("makerlens-currency", state.currency);
+  if (!document.getElementById("app").classList.contains("hidden")) render();
+});
+document.getElementById("horizon").addEventListener("change", e => { state.horizon = +e.target.value; render(); });
+document.getElementById("autoSeason").addEventListener("change", e => { state.autoSeason = e.target.checked; render(); });
+document.getElementById("boost").addEventListener("input", e => { state.boost = Math.max(0, parseFloat(e.target.value) || 0); render(); });
+
+state.currency = safeGet("makerlens-currency", "$");
+document.getElementById("currency").value = state.currency;
+</script>
+</body>
+</html>
