@@ -85,6 +85,7 @@ tr.loss td{background:var(--bad-soft)}
 .feebar .amt{width:90px;text-align:right;flex-shrink:0}
 footer{color:var(--muted);font-size:13px;padding:32px 0 48px;text-align:center}
 .hidden{display:none}
+input[type=range]{accent-color:var(--accent)}
 .toprow{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:24px}
 .toprow h2{margin:0}
 </style>
@@ -179,6 +180,18 @@ footer{color:var(--muted);font-size:13px;padding:32px 0 48px;text-align:center}
       <p class="sub">Type in what one item costs you to make (materials + packaging). Products losing money are shown in red.</p>
       <div class="tablewrap"><table id="productTable"></table></div>
       <p class="note" id="feeNote"></p>
+    </div>
+
+    <div class="card" id="whatifCard">
+      <h2>What if I change my price?</h2>
+      <p class="sub">Pick a product and slide the price to see what you'd keep on each sale.</p>
+      <div class="controls">
+        <label>Product <select id="wiProduct"></select></label>
+      </div>
+      <input type="range" id="wiSlider" style="width:100%">
+      <div class="grid" id="wiStats" style="margin-top:12px"></div>
+      <div id="wiMsg"></div>
+      <p class="note">Fees that are a % of the price (transaction, payment processing, offsite ads) change with your price. Fixed ones (shipping labels, listing fees, your materials) don't. Remember: a higher price can mean fewer sales, so test changes carefully.</p>
     </div>
 
     <div class="card">
@@ -363,14 +376,15 @@ function analyze(){
     if (type === "sale"){
       gross += amount; m.sales += amount;
       if (feeTax){ fees["Payment processing"] = (fees["Payment processing"] || 0) + feeTax; m.fees += feeTax; }
-      if (feeTax) costLines.push({ order:orderId(r), title:"", amount:feeTax });
+      if (feeTax) costLines.push({ order:orderId(r), title:"", amount:feeTax, kind:"pct" });
     } else if (type === "refund"){
       refunds += net; m.refunds += net;
-      costLines.push({ order:orderId(r), title:"", amount:net });
+      costLines.push({ order:orderId(r), title:"", amount:net, kind:"pct" });
     } else {
       const b = feeBucket(type);
       fees[b] = (fees[b] || 0) + net; m.fees += net;
-      costLines.push({ order:orderId(r), title:col(r, "Title") || "", amount:net });
+      const kind = (b === "Transaction fees" || b === "Ads & marketing" || b === "Tax on fees") ? "pct" : "fixed";
+      costLines.push({ order:orderId(r), title:col(r, "Title") || "", amount:net, kind });
     }
     m.net += net;
   }
@@ -404,18 +418,20 @@ function analyze(){
   //    (e.g. a $4.85 shipping label is charged to the item that was shipped)
   //  - "Transaction fee: <product>" goes straight to that product
   //  - shop-wide costs (monthly Etsy Ads, subscription...) are shared by sales
-  for (const p of productList) p.fees = 0;
+  for (const p of productList){ p.fees = 0; p.pctFees = 0; p.fixedFees = 0; }
+  const charge = (prod, amount, kind) => { prod.fees += amount; if (kind === "pct") prod.pctFees += amount; else prod.fixedFees += amount; };
   let shopWide = 0, linked = 0;
   for (const c of costLines){
     const items = c.order ? orders[c.order] : null;
     if (!items){ shopWide += c.amount; continue; }
     linked += c.amount;
     const named = items.find(it => c.title && c.title.toLowerCase().includes(it.name.toLowerCase()));
-    if (named){ products[named.name].fees += c.amount; continue; }
+    if (named){ charge(products[named.name], c.amount, c.kind); continue; }
     const orderTotal = sum(items.map(it => it.revenue));
-    for (const it of items) products[it.name].fees += c.amount * (orderTotal ? it.revenue / orderTotal : 1 / items.length);
+    for (const it of items) charge(products[it.name], c.amount * (orderTotal ? it.revenue / orderTotal : 1 / items.length), c.kind);
   }
-  for (const p of productList) p.fees += shopWide * (itemRevenue ? p.revenue / itemRevenue : 0);
+  // shop-wide costs (monthly ads, subscription) don't change when one price changes -> fixed
+  for (const p of productList) charge(p, shopWide * (itemRevenue ? p.revenue / itemRevenue : 0), "fixed");
   const feeSplit = { linked, shopWide, exact: costLines.length > 0 && linked !== 0 };
 
   for (const p of productList){
@@ -582,6 +598,8 @@ function render(){
     if (active){ const el = table.querySelector(`[data-product="${CSS.escape(active)}"]`); if (el) el.focus(); }
   }
 
+  setupWhatIf(a);
+
   // monthly chart
   $("monthChart").innerHTML = barChart(a.keys.map(k => ({ label:keyToLabel(k), value:a.months[k].profit, kind:"actual" })), { label:"Profit by month" });
 
@@ -631,6 +649,60 @@ function renderForecast(a){
     <li><strong>Slow month / good month range:</strong> ±10% of the forecast, plus 2.5% more for every month further ahead, because the future is less certain the further out you look.</li>
   </ol>
   <p class="note">This is a simple, transparent model, not a crystal ball. New products, price changes, ads or Etsy fee changes will all change the real result.</p>`;
+}
+
+/* ---------- what if I change my price? ---------- */
+let wiData = [];
+function whatIfModel(p){
+  const price = p.units ? p.revenue / p.units : 0;          // average price actually paid
+  const rate = p.revenue ? -p.pctFees / p.revenue : 0;     // share of the price lost to %-based fees
+  const fixed = p.units ? -p.fixedFees / p.units : 0;       // fixed fees per item
+  const material = state.costs[p.name] || 0;
+  const profitAt = x => x * (1 - rate) - fixed - material;
+  const breakEven = rate < 1 ? (fixed + material) / (1 - rate) : Infinity;
+  return { price, rate, fixed, material, profitAt, breakEven, units:p.units };
+}
+function setupWhatIf(a){
+  const card = document.getElementById("whatifCard");
+  if (!a.hasItems || !a.productList.length){ card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
+  wiData = a.productList;
+  const sel = document.getElementById("wiProduct");
+  const keep = sel.value;
+  sel.innerHTML = wiData.map((p, i) => `<option value="${i}">${esc(p.name)}</option>`).join("");
+  const idx = wiData.findIndex(p => p.name === sel.dataset.name);
+  sel.value = idx >= 0 ? idx : (keep && wiData[keep] ? keep : 0);
+  resetSlider();
+}
+function resetSlider(){
+  const sel = document.getElementById("wiProduct");
+  const p = wiData[+sel.value]; if (!p) return;
+  sel.dataset.name = p.name;
+  const m = whatIfModel(p);
+  const slider = document.getElementById("wiSlider");
+  const lo = Math.max(0.5, Math.floor(m.price * 0.5)), hi = Math.ceil(Math.max(m.price * 2, m.breakEven * 1.3));
+  slider.min = lo; slider.max = hi; slider.step = 0.5;
+  if (slider.dataset.name !== p.name){ slider.value = m.price; slider.dataset.name = p.name; }
+  updateWhatIf();
+}
+function updateWhatIf(){
+  const p = wiData[+document.getElementById("wiProduct").value]; if (!p) return;
+  const m = whatIfModel(p);
+  const newPrice = +document.getElementById("wiSlider").value;
+  const now = m.profitAt(m.price), next = m.profitAt(newPrice);
+  const diffTotal = (next - now) * m.units;
+  const cls = v => v < 0 ? "neg" : "";
+  document.getElementById("wiStats").innerHTML = [
+    ["Price now", fmt(m.price)],
+    ["New price", fmt(newPrice), true],
+    ["You keep per item now", `<span class="${cls(now)}">${fmt(now)}</span>`],
+    ["You'd keep per item", `<span class="${cls(next)}">${fmt(next)}</span>`, true],
+    ["Minimum price to not lose money", isFinite(m.breakEven) ? fmt(m.breakEven) : "n/a"],
+    [`If you sold the same ${m.units} items`, `<span class="${cls(diffTotal)}">${fmt(diffTotal, {plus:true})}</span>`],
+  ].map(([l, v, hl]) => `<div class="stat${hl ? " highlight" : ""}"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+  document.getElementById("wiMsg").innerHTML = next < 0
+    ? `<div class="warn">At ${fmt(newPrice)} you'd still lose ${fmt(-next)} on every sale. Charge at least <strong>${fmt(m.breakEven)}</strong>, or lower your costs.</div>`
+    : (now < 0 ? `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✓ At ${fmt(newPrice)} this product stops losing money.</div>` : "");
 }
 
 /* ---------- month picker ---------- */
@@ -760,6 +832,8 @@ document.getElementById("currency").addEventListener("change", e => {
   state.currency = e.target.value; safeSet("makerlens-currency", state.currency);
   if (!document.getElementById("app").classList.contains("hidden")) render();
 });
+document.getElementById("wiProduct").addEventListener("change", resetSlider);
+document.getElementById("wiSlider").addEventListener("input", updateWhatIf);
 document.getElementById("horizon").addEventListener("change", e => { state.horizon = +e.target.value; render(); });
 document.getElementById("autoSeason").addEventListener("change", e => { state.autoSeason = e.target.checked; render(); });
 document.getElementById("boost").addEventListener("input", e => { state.boost = Math.max(0, parseFloat(e.target.value) || 0); render(); });
