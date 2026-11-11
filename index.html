@@ -718,19 +718,41 @@ function updateWhatIf(){
   const m = whatIfModel(p);
   const newPrice = +document.getElementById("wiSlider").value;
   const now = m.profitAt(m.price), next = m.profitAt(newPrice);
-  const diffTotal = (next - now) * m.units;
   const cls = v => v < 0 ? "neg" : "";
+  const n = m.units;
+  const whole = x => Math.round(x).toLocaleString("en-US");
+
+  // No guessing about customers: just how many sales you could lose (or would need to gain)
+  // to end up with the same total profit as now.
+  let label = "Sales vs now", value = "same price", msg = "";
+  const same = Math.abs(newPrice - m.price) < 0.005;
+  if (same){
+    msg = `<p class="note">This is your current average price. Move the slider to compare.</p>`;
+  } else if (next <= 0){
+    value = `<span class="neg">loses money</span>`;
+    msg = `<div class="warn">At ${fmt(newPrice)} you'd lose ${fmt(-next)} on every sale, so selling more wouldn't help. Charge at least <strong>${fmt(m.breakEven)}</strong>, or lower your costs.</div>`;
+  } else if (now <= 0){
+    value = "any sales";
+    msg = `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✓ Right now every sale loses money. At ${fmt(newPrice)} every sale earns ${fmt(next)}, so even if you sold fewer, you'd do better than now.</div>`;
+  } else if (next > now){
+    const drop = 1 - now / next;
+    label = "You could sell up to"; value = `${Math.round(drop * 100)}% fewer`;
+    msg = `<p class="note">At ${fmt(newPrice)} you'd keep more per sale. Even if you sold <strong>up to ${Math.round(drop * 100)}% fewer</strong> (about ${whole(n * (1 - drop))} instead of ${whole(n)}), you'd still earn at least as much in total as now. Only you know how your customers react to price changes, so this shows how much room you have, not what will happen.</p>`;
+  } else {
+    const rise = now / next - 1;
+    label = "You'd need to sell"; value = `${Math.round(rise * 100)}% more`;
+    msg = `<p class="note">At ${fmt(newPrice)} you'd keep less per sale. You'd need to sell <strong>${Math.round(rise * 100)}% more</strong> (about ${whole(n * (1 + rise))} instead of ${whole(n)}) just to earn the same total as now.</p>`;
+  }
+
   document.getElementById("wiStats").innerHTML = [
     ["Price now", fmt(m.price)],
     ["New price", fmt(newPrice), true],
     ["You keep per item now", `<span class="${cls(now)}">${fmt(now)}</span>`],
     ["You'd keep per item", `<span class="${cls(next)}">${fmt(next)}</span>`, true],
     ["Minimum price to not lose money", isFinite(m.breakEven) ? fmt(m.breakEven) : "n/a"],
-    [`If you sold the same ${m.units} items`, `<span class="${cls(diffTotal)}">${fmt(diffTotal, {plus:true})}</span>`],
+    [label, value],
   ].map(([l, v, hl]) => `<div class="stat${hl ? " highlight" : ""}"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
-  document.getElementById("wiMsg").innerHTML = next < 0
-    ? `<div class="warn">At ${fmt(newPrice)} you'd still lose ${fmt(-next)} on every sale. Charge at least <strong>${fmt(m.breakEven)}</strong>, or lower your costs.</div>`
-    : (now < 0 ? `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✓ At ${fmt(newPrice)} this product stops losing money.</div>` : "");
+  document.getElementById("wiMsg").innerHTML = msg;
 }
 
 /* ---------- plan a new product ---------- */
