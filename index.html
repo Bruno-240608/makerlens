@@ -194,6 +194,20 @@ input[type=range]{accent-color:var(--accent)}
       <p class="note">Fees that are a % of the price (transaction, payment processing, offsite ads) change with your price. Fixed ones (shipping labels, listing fees, your materials) don't. Remember: a higher price can mean fewer sales, so test changes carefully.</p>
     </div>
 
+    <div class="card" id="planCard">
+      <h2>Plan a new product</h2>
+      <p class="sub">Thinking of selling something new? Estimate what you'd keep per sale, using your shop's real Etsy fees.</p>
+      <div class="controls">
+        <label>Name <input type="text" id="planName" placeholder="e.g. Rose Candle" style="width:160px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 8px"></label>
+        <label>Price <input type="number" id="planPrice" min="0" step="0.01" placeholder="0.00" style="width:90px"></label>
+        <label>Cost to make one <input type="number" id="planCost" min="0" step="0.01" placeholder="0.00" style="width:90px"></label>
+        <label>Expected sales per month <input type="number" id="planQty" min="0" step="1" value="10" style="width:70px"></label>
+      </div>
+      <div class="grid" id="planStats"></div>
+      <div id="planMsg"></div>
+      <p class="note" id="planNote"></p>
+    </div>
+
     <div class="card">
       <h2>Profit by month</h2>
       <p class="sub">What you kept each month after Etsy fees and your material costs.</p>
@@ -448,7 +462,20 @@ function analyze(){
   const payout = sum(keys.map(k => months[k].net));
   const profit = payout - materials;
 
-  return { months, keys, fees, totalFees, gross, refunds, payout, materials, profit, productList, hasItems, feeSplit };
+  // Shop-wide rates, used to estimate a product that hasn't sold yet
+  const pctBuckets = ["Payment processing", "Transaction fees", "Ads & marketing", "Tax on fees"];
+  const pctTotal = sum(Object.entries(fees).filter(([k]) => pctBuckets.includes(k)).map(([, v]) => v)) + refunds;
+  const fixedTotal = totalFees - sum(Object.entries(fees).filter(([k]) => pctBuckets.includes(k)).map(([, v]) => v));
+  const saleCount = state.statementRows.filter(r => (col(r, "Type") || "").toLowerCase() === "sale").length;
+  const unitsSold = hasItems ? sum(productList.map(p => p.units)) : saleCount;
+  const salesBase = hasItems ? itemRevenue : gross;
+  const shopRates = {
+    pctRate: salesBase ? -pctTotal / salesBase : 0,        // share of each price lost to %-based fees
+    fixedPerItem: unitsSold ? -fixedTotal / unitsSold : 0, // fixed fees per item sold
+    keepShare: gross ? profit / gross : 0,                 // shop's average "% you keep"
+  };
+
+  return { months, keys, fees, totalFees, gross, refunds, payout, materials, profit, productList, hasItems, feeSplit, shopRates };
 }
 
 /* ---------- forecast ---------- */
@@ -599,6 +626,7 @@ function render(){
   }
 
   setupWhatIf(a);
+  setupPlan(a);
 
   // monthly chart
   $("monthChart").innerHTML = barChart(a.keys.map(k => ({ label:keyToLabel(k), value:a.months[k].profit, kind:"actual" })), { label:"Profit by month" });
@@ -703,6 +731,38 @@ function updateWhatIf(){
   document.getElementById("wiMsg").innerHTML = next < 0
     ? `<div class="warn">At ${fmt(newPrice)} you'd still lose ${fmt(-next)} on every sale. Charge at least <strong>${fmt(m.breakEven)}</strong>, or lower your costs.</div>`
     : (now < 0 ? `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✓ At ${fmt(newPrice)} this product stops losing money.</div>` : "");
+}
+
+/* ---------- plan a new product ---------- */
+let planRates = null;
+function setupPlan(a){ planRates = a.shopRates; updatePlan(); }
+function updatePlan(){
+  if (!planRates) return;
+  const $ = id => document.getElementById(id);
+  const name = $("planName").value.trim() || "Your new product";
+  const price = parseFloat($("planPrice").value);
+  const cost = parseFloat($("planCost").value) || 0;
+  const qty = Math.max(0, parseFloat($("planQty").value) || 0);
+  const r = planRates;
+  $("planNote").innerHTML = `Based on your shop: about <strong>${pct(r.pctRate)}</strong> of each price goes to fees that grow with the price (transaction, processing, ads), plus about <strong>${fmt(r.fixedPerItem)}</strong> of fixed fees per item (shipping labels, listing fees, shared shop costs). It's an estimate: a new product's real fees can differ.`;
+  if (!(price > 0)){
+    $("planStats").innerHTML = ""; $("planMsg").innerHTML = `<p class="note">Type a price to see the estimate.</p>`;
+    return;
+  }
+  const keep = price * (1 - r.pctRate) - r.fixedPerItem - cost;
+  const share = keep / price;
+  const minPrice = r.pctRate < 1 ? (r.fixedPerItem + cost) / (1 - r.pctRate) : Infinity;
+  const cls = v => v < 0 ? "neg" : "";
+  $("planStats").innerHTML = [
+    ["You'd keep per sale", `<span class="${cls(keep)}">${fmt(keep)}</span>`, true],
+    ["% of each sale you keep", `<span class="${cls(share)}">${pct(share)}</span>`, true],
+    ["Minimum price to not lose money", isFinite(minPrice) ? fmt(minPrice) : "n/a"],
+    [`Per month (${qty} sales)`, `<span class="${cls(keep)}">${fmt(keep * qty)}</span>`],
+  ].map(([l, v, hl]) => `<div class="stat${hl ? " highlight" : ""}"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+  const avg = r.keepShare;
+  $("planMsg").innerHTML = keep < 0
+    ? `<div class="warn">At ${fmt(price)}, ${esc(name)} would lose ${fmt(-keep)} on every sale. Charge at least <strong>${fmt(minPrice)}</strong>.</div>`
+    : `<p class="note">${esc(name)} would keep <strong>${pct(share)}</strong> of each sale. Your shop overall keeps <strong>${pct(avg)}</strong>${share >= avg ? ", so this would be one of your better products." : ", so it would pull your average down a bit."}</p>`;
 }
 
 /* ---------- month picker ---------- */
@@ -833,6 +893,7 @@ document.getElementById("currency").addEventListener("change", e => {
   if (!document.getElementById("app").classList.contains("hidden")) render();
 });
 document.getElementById("wiProduct").addEventListener("change", resetSlider);
+["planName", "planPrice", "planCost", "planQty"].forEach(id => document.getElementById(id).addEventListener("input", updatePlan));
 document.getElementById("wiSlider").addEventListener("input", updateWhatIf);
 document.getElementById("horizon").addEventListener("change", e => { state.horizon = +e.target.value; render(); });
 document.getElementById("autoSeason").addEventListener("change", e => { state.autoSeason = e.target.checked; render(); });
