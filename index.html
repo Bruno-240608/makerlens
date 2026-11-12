@@ -139,6 +139,7 @@ input[type=range]{accent-color:var(--accent)}
         <p><strong>Drag & drop your Etsy files</strong> or <label style="color:var(--accent);cursor:pointer;text-decoration:underline">browse<input type="file" id="fileInput" accept=".csv,text/csv" multiple hidden></label></p>
         <p style="font-size:14px;margin:0">Needed: <strong>monthly statement(s)</strong>. Optional: <strong>Order Items</strong> file (for profit per product).</p>
         <ul class="filelist" id="fileList"></ul>
+      <div id="fileProblems" style="text-align:left"></div>
       </div>
       <details>
         <summary>How do I download these files from Etsy?</summary>
@@ -800,14 +801,38 @@ function buildMonthPicker(){
 }
 
 /* ---------- files ---------- */
+const HOW_STATEMENT = "On Etsy: <strong>Shop Manager → Finances → Monthly statements → pick a month → Download CSV</strong>, then drop that file here.";
+const STATEMENT_MUST = ["Date", "Type", "Net"];
+const hasCol = (rows, name) => rows.length > 0 && Object.keys(rows[0]).some(k => k.toLowerCase() === name.toLowerCase());
+
+// Look at one uploaded file and say what's wrong with it, if anything.
+// level "error" = we can't use this file; level "warn" = usable, but something will be missing.
+function checkFile(f){
+  if (f.notCsv) return { level:"error", text:`<strong>${esc(f.name)}</strong> isn't a CSV file. Etsy's downloads end in <strong>.csv</strong>. ${HOW_STATEMENT}` };
+  if (!f.rows.length) return { level:"error", text:`<strong>${esc(f.name)}</strong> is empty. ${HOW_STATEMENT}` };
+  if (f.kind === "statement"){
+    if (!hasCol(f.rows, "Date")) return { level:"error", text:`<strong>${esc(f.name)}</strong> is missing the <strong>Date</strong> column, so we can't sort it by month. ${HOW_STATEMENT}` };
+    if (!hasCol(f.rows, "Title")) return { level:"warn", text:`<strong>${esc(f.name)}</strong> has no <strong>Title</strong> column. Total and monthly profit will work, but fees can't be matched to products.` };
+    return null;
+  }
+  if (f.kind === "items") return null;
+  const missing = STATEMENT_MUST.filter(c => !hasCol(f.rows, c));
+  return { level:"error", text:`<strong>${esc(f.name)}</strong> doesn't look like an Etsy monthly statement. It's missing ${missing.map(c => `<strong>${c}</strong>`).join(", ")}. ${HOW_STATEMENT}` };
+}
+
 function handleFiles(fileList){
-  const files = [...fileList].filter(f => /\.csv$/i.test(f.name) || f.type === "text/csv");
-  if (!files.length) return;
-  Promise.all(files.map(f => f.text().then(t => {
-    const rows = parseCSV(t);
-    return { name:f.name, kind:detectKind(rows), rows };
-  }))).then(parsed => {
+  const all = [...fileList];
+  if (!all.length) return;
+  Promise.all(all.map(f => {
+    if (!/\.csv$/i.test(f.name) && f.type !== "text/csv") return Promise.resolve({ name:f.name, kind:"unknown", rows:[], notCsv:true });
+    return f.text().then(t => {
+      const rows = parseCSV(t);
+      return { name:f.name, kind:detectKind(rows), rows };
+    });
+  })).then(parsed => {
     for (const p of parsed){
+      p.problem = checkFile(p);
+      if (p.problem && p.problem.level === "error") p.kind = "unknown";
       state.files = state.files.filter(x => x.name !== p.name);
       state.files.push(p);
     }
@@ -815,8 +840,10 @@ function handleFiles(fileList){
   });
 }
 function showFileList(){
-  const labels = { statement:"✅ Monthly statement", items:"✅ Order Items", unknown:"⚠ Not recognised (skipped)" };
-  document.getElementById("fileList").innerHTML = state.files.map(f => `<li>${labels[f.kind]}: ${esc(f.name)} (${f.rows.length} rows)</li>`).join("");
+  const labels = { statement:"✅ Monthly statement", items:"✅ Order Items", unknown:"❌ Can't use this file" };
+  document.getElementById("fileList").innerHTML = state.files.map(f => `<li>${labels[f.kind]}: ${esc(f.name)}${f.notCsv ? "" : ` (${f.rows.length} row${f.rows.length === 1 ? "" : "s"})`}</li>`).join("");
+  document.getElementById("fileProblems").innerHTML = state.files.filter(f => f.problem)
+    .map(f => `<div class="warn">${f.problem.level === "error" ? "⚠️" : "ℹ️"} ${f.problem.text}</div>`).join("");
   document.getElementById("analyzeBtn").disabled = !state.files.some(f => f.kind === "statement");
 }
 function startAnalysis(){
