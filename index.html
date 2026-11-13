@@ -220,6 +220,7 @@ input[type=range]{accent-color:var(--accent)}
     <div class="card" id="productsCard">
       <h2>Profit per product</h2>
       <p class="sub">Type in what one item costs you to make (materials + packaging). Products losing money are shown in red.</p>
+      <div id="productSummary"></div>
       <div class="tablewrap"><table id="productTable"></table></div>
       <p class="note" id="feeNote"></p>
     </div>
@@ -645,6 +646,17 @@ function render(){
     $("feeNote").innerHTML = a.feeSplit.exact
       ? `ℹ️ <strong>How exact is this?</strong> <strong>${Math.round(pctLinked * 100)}%</strong> of your fees and refunds are matched to the exact order they came from (so a shipping label is charged to the item that was shipped). The rest (shop-wide costs like monthly Etsy Ads) is shared between products by their sales.`
       : `ℹ️ <strong>How exact is this?</strong> Etsy fees and refunds are shared between products by their sales. That part is an estimate, because we couldn't match fees to individual orders in your files.`;
+    // one-line summary so losing products are seen first, even with lots of products
+    const losers = a.productList.filter(p => p.profit < 0).sort((x, y) => x.profit - y.profit);
+    const missingCosts = a.productList.some(p => !state.costs[p.name]);
+    if (losers.length){
+      const shown = losers.slice(0, 3).map(p => `<strong>${esc(p.name)}</strong> (${fmt(p.profit)})`).join(", ");
+      const more = losers.length > 3 ? ` and ${losers.length - 3} more` : "";
+      $("productSummary").innerHTML = `<div class="warn">⚠️ <strong>${losers.length} product${losers.length > 1 ? "s lose" : " loses"} money:</strong> ${shown}${more}. ${losers.length > 3 ? "They're shown in red in the table." : ""}</div>`;
+    } else if (a.productList.length){
+      const top = a.productList[0];
+      $("productSummary").innerHTML = `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✅ None of your products lose money${missingCosts ? " (based on the costs you've entered so far)" : ""}. Top earner: <strong>${esc(top.name)}</strong> (${fmt(top.profit)}).</div>`;
+    } else $("productSummary").innerHTML = "";
     const table = $("productTable");
     const active = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.product : null;
     const profitable = a.productList.filter(p => p.profit > 0);
