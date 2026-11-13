@@ -39,7 +39,8 @@ header .wrap{display:flex;align-items:center;justify-content:space-between;heigh
 select,input,button{font:inherit;color:inherit}
 select,input[type=number]{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
 button{cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--card);padding:10px 16px}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+label.btnlike{cursor:pointer;border-radius:10px;border:1px solid var(--line);padding:10px 16px;display:inline-block}
+button.primary,label.btnlike.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
 @media (prefers-color-scheme: dark){button.primary{color:#0f1f19}}
 button:disabled{opacity:.5;cursor:not-allowed}
 .hero{padding:56px 0 32px}
@@ -92,6 +93,10 @@ tr.loss td{background:var(--bad-soft)}
 .preview-row span:last-child{font-weight:600;white-space:nowrap}
 .preview-row.bad{background:var(--bad-soft);color:var(--bad);border-radius:8px;border-bottom:none}
 .preview-cap{font-size:13px;color:var(--muted);margin:10px 4px 2px}
+.steps{list-style:none;padding:0;margin:8px auto 0;font-size:14px;text-align:left;display:inline-block}
+.steps li{margin:4px 0}
+.steps li.done{color:var(--accent)}
+.steps em{color:var(--muted);font-style:normal}
 .badge.lose{background:var(--bad);color:#fff}
 .badge.ok{background:var(--accent-soft);color:var(--accent)}
 .badge.mid{background:var(--warn-soft);color:var(--warn)}
@@ -158,7 +163,10 @@ input[type=range]{accent-color:var(--accent)}
       <p class="sub">Add the files Etsy lets you download (they end in .csv). We work out which file is which automatically.</p>
       <div class="drop" id="drop">
         <p><strong>Drag & drop your Etsy files</strong> or <label style="color:var(--accent);cursor:pointer;text-decoration:underline">browse<input type="file" id="fileInput" accept=".csv,text/csv" multiple hidden></label></p>
-        <p style="font-size:14px;margin:0">Needed: <strong>monthly statement(s)</strong>. Optional: <strong>Order Items</strong> file (for profit per product).</p>
+        <ol class="steps" id="uploadSteps">
+          <li id="stepStatement"><span class="tick">①</span> <strong>Monthly statement(s)</strong>: your money in and out. <em>Needed.</em></li>
+          <li id="stepItems"><span class="tick">②</span> <strong>Order Items</strong>: one file for the whole year. <em>Add it to see profit per product.</em></li>
+        </ol>
         <ul class="filelist" id="fileList"></ul>
       <div id="fileProblems" style="text-align:left"></div>
       </div>
@@ -166,7 +174,7 @@ input[type=range]{accent-color:var(--accent)}
         <summary>How do I download these files from Etsy?</summary>
         <ol style="font-size:14px">
           <li><strong>Monthly statements:</strong> Shop Manager → Finances → Monthly statements → choose a month → Download CSV. Do this for each month you want (more months = better forecast; 12 months lets us detect your busy season automatically).</li>
-          <li><strong>Order Items (optional):</strong> Shop Manager → Settings → Options → Download Data → choose "Order Items", pick the year → Download CSV.</li>
+          <li><strong>Order Items (one file covers the whole year):</strong> Shop Manager → Settings → Options → Download Data → choose "Order Items", pick the year → Download CSV.</li>
         </ol>
         <p class="note">Etsy sometimes moves these menus. If something looks different, look for "Download Data" or "Monthly statements".</p>
       </details>
@@ -195,6 +203,18 @@ input[type=range]{accent-color:var(--accent)}
       <h2>Where your money goes</h2>
       <p class="sub">Every Etsy fee in the period, biggest first.</p>
       <div id="feeBars"></div>
+    </div>
+
+    <div class="card hidden" id="unlockCard">
+      <h2>Which products make you money?</h2>
+      <p class="sub">To see profit for each product (and which ones lose money), add Etsy's <strong>Order Items</strong> file. One file covers the whole year, so it takes about a minute.</p>
+      <ol style="font-size:14px">
+        <li>On Etsy: <strong>Shop Manager → Settings → Options → Download Data</strong></li>
+        <li>Under "Orders", choose <strong>Order Items</strong>, pick the year → <strong>Download CSV</strong></li>
+        <li>Add it here:</li>
+      </ol>
+      <div class="btns"><label class="primary btnlike">Add Order Items file<input type="file" id="addItemsInput" accept=".csv,text/csv" hidden></label></div>
+      <div id="addItemsMsg"></div>
     </div>
 
     <div class="card" id="productsCard">
@@ -602,7 +622,9 @@ function render(){
       <input type="number" id="matPct" min="0" max="100" value="${state.materialsPct}" style="width:70px">%</div>`;
     $("matPct").addEventListener("change", e => { state.materialsPct = parseFloat(e.target.value) || 0; render(); });
     $("productsCard").classList.add("hidden");
+    $("unlockCard").classList.toggle("hidden", state.isSample);
   } else {
+    $("unlockCard").classList.add("hidden");
     const missing = a.productList.filter(p => !state.costs[p.name]).length;
     $("materialsNote").innerHTML = missing ? `<div class="warn">${missing} product${missing>1?"s":""} still ${missing>1?"have":"has"} no material cost. Add them below for an accurate profit.</div>` : "";
     $("productsCard").classList.remove("hidden");
@@ -865,7 +887,12 @@ function showFileList(){
   document.getElementById("fileList").innerHTML = state.files.map(f => `<li>${labels[f.kind]}: ${esc(f.name)}${f.notCsv ? "" : ` (${f.rows.length} row${f.rows.length === 1 ? "" : "s"})`}</li>`).join("");
   document.getElementById("fileProblems").innerHTML = state.files.filter(f => f.problem)
     .map(f => `<div class="warn">${f.problem.level === "error" ? "⚠️" : "ℹ️"} ${f.problem.text}</div>`).join("");
-  document.getElementById("analyzeBtn").disabled = !state.files.some(f => f.kind === "statement");
+  const hasStatement = state.files.some(f => f.kind === "statement"), hasItemsFile = state.files.some(f => f.kind === "items");
+  const stS = document.getElementById("stepStatement"), stI = document.getElementById("stepItems");
+  stS.classList.toggle("done", hasStatement); stS.querySelector(".tick").textContent = hasStatement ? "✅" : "①";
+  stI.classList.toggle("done", hasItemsFile); stI.querySelector(".tick").textContent = hasItemsFile ? "✅" : "②";
+  document.getElementById("analyzeBtn").disabled = !hasStatement;
+  document.getElementById("analyzeBtn").textContent = hasStatement && !hasItemsFile ? "Analyze without per-product profit" : "Analyze my shop";
 }
 function startAnalysis(){
   state.statementRows = state.files.filter(f => f.kind === "statement").flatMap(f => f.rows);
@@ -933,6 +960,22 @@ function makeSample(){
 }
 
 /* ---------- wire up ---------- */
+document.getElementById("addItemsInput").addEventListener("change", e => {
+  const f = e.target.files[0]; if (!f) return;
+  f.text().then(t => {
+    const rows = parseCSV(t), kind = detectKind(rows);
+    if (kind !== "items"){
+      document.getElementById("addItemsMsg").innerHTML = `<div class="warn">⚠️ <strong>${esc(f.name)}</strong> isn't an Order Items file. On Etsy: <strong>Shop Manager → Settings → Options → Download Data → Order Items → Download CSV</strong>.</div>`;
+      return;
+    }
+    state.files = state.files.filter(x => x.name !== f.name).concat([{ name:f.name, kind, rows }]);
+    state.itemRows = state.files.filter(x => x.kind === "items").flatMap(x => x.rows);
+    document.getElementById("addItemsMsg").innerHTML = "";
+    buildMonthPicker(); render();
+    document.getElementById("productsCard").scrollIntoView({ behavior:"smooth", block:"start" });
+  });
+  e.target.value = "";
+});
 document.getElementById("previewCard").addEventListener("click", () => document.getElementById("trySample").click());
 document.getElementById("trySample").addEventListener("click", () => {
   const s = makeSample();
