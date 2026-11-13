@@ -192,7 +192,7 @@ input[type=range]{accent-color:var(--accent)}
       <input type="range" id="wiSlider" style="width:100%">
       <div class="grid" id="wiStats" style="margin-top:12px"></div>
       <div id="wiMsg"></div>
-      <p class="note">Fees that are a % of the price (transaction, payment processing, offsite ads) change with your price. Fixed ones (shipping labels, listing fees, your materials) don't. Remember: a higher price can mean fewer sales, so test changes carefully.</p>
+      <p class="note">These are <strong>estimates</strong> based on your shop's past fees. Fees that are a % of the price (transaction, payment processing, offsite ads) change with your price. Fixed ones (shipping labels, listing fees, your materials) don't. Remember: a higher price can mean fewer sales, so test changes carefully.</p>
     </div>
 
     <div class="card" id="planCard">
@@ -600,8 +600,8 @@ function render(){
   if (a.hasItems){
     const pctLinked = (a.feeSplit.linked + a.feeSplit.shopWide) ? a.feeSplit.linked / (a.feeSplit.linked + a.feeSplit.shopWide) : 0;
     $("feeNote").innerHTML = a.feeSplit.exact
-      ? `<strong>${Math.round(pctLinked * 100)}%</strong> of your fees and refunds are matched to the exact order they came from (so a shipping label is charged to the item that was shipped). The rest (shop-wide costs like monthly Etsy Ads) is shared between products by their sales.`
-      : `Etsy fees and refunds are shared between products by their sales. That part is an estimate, because we couldn't match fees to individual orders in your files.`;
+      ? `ℹ️ <strong>How exact is this?</strong> <strong>${Math.round(pctLinked * 100)}%</strong> of your fees and refunds are matched to the exact order they came from (so a shipping label is charged to the item that was shipped). The rest (shop-wide costs like monthly Etsy Ads) is shared between products by their sales.`
+      : `ℹ️ <strong>How exact is this?</strong> Etsy fees and refunds are shared between products by their sales. That part is an estimate, because we couldn't match fees to individual orders in your files.`;
     const table = $("productTable");
     const active = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.product : null;
     const profitable = a.productList.filter(p => p.profit > 0);
