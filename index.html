@@ -5,7 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MakerLens: Free Etsy Profit Calculator</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='13' cy='13' r='10' fill='%23e3efe9' stroke='%232f6f5e' stroke-width='3'/%3E%3Cline x1='20.5' y1='20.5' x2='29' y2='29' stroke='%232f6f5e' stroke-width='4' stroke-linecap='round'/%3E%3Crect x='8' y='13' width='3' height='5' rx='1' fill='%232f6f5e'/%3E%3Crect x='12' y='10' width='3' height='8' rx='1' fill='%232f6f5e'/%3E%3Crect x='16' y='7' width='3' height='11' rx='1' fill='%232f6f5e'/%3E%3C/svg%3E">
-<meta name="description" content="See your real Etsy shop profit after every fee, and a transparent cash-flow forecast. Free, and your data never leaves your browser.">
+<meta name="description" content="A fast and easy way to see how your Etsy products are doing now, and where they're heading. Free, no typing, and your data never leaves your browser.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://bruno-240608.github.io/makerlens/">
+<meta property="og:title" content="MakerLens: see your real Etsy profit, product by product">
+<meta property="og:description" content="A fast and easy way to see how your Etsy products are doing now, and where they're heading. Free, no typing, and your data never leaves your browser.">
+<meta property="og:image" content="https://bruno-240608.github.io/makerlens/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <style>
 :root{
   --bg:#f7f6f3; --card:#ffffff; --text:#1d1d1f; --muted:#6b6b70; --line:#e4e2dc;
@@ -76,6 +84,15 @@ tr.loss td{background:var(--bad-soft)}
 .chart svg{width:100%;height:auto;display:block}
 .chart text{fill:var(--muted);font-size:11px}
 .badge{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;margin-left:8px;vertical-align:middle}
+.preview{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px 10px;max-width:520px;margin:4px 0 22px;box-shadow:0 6px 24px rgba(0,0,0,.05);cursor:pointer;transition:box-shadow .15s}
+.preview:hover{box-shadow:0 8px 30px rgba(0,0,0,.09)}
+.preview-head,.preview-row{display:flex;justify-content:space-between;gap:12px;padding:8px 4px;font-size:15px}
+.preview-head{color:var(--muted);font-size:13px;border-bottom:1px solid var(--line)}
+.preview-row{border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.preview-row span:last-child{font-weight:600;white-space:nowrap}
+.preview-row.bad{background:var(--bad-soft);color:var(--bad);border-radius:8px;border-bottom:none}
+.preview-cap{font-size:13px;color:var(--muted);margin:10px 4px 2px}
+.badge.lose{background:var(--bad);color:#fff}
 .badge.ok{background:var(--accent-soft);color:var(--accent)}
 .badge.mid{background:var(--warn-soft);color:var(--warn)}
 .feebar{display:flex;align-items:center;gap:10px;margin:6px 0;font-size:14px}
@@ -118,13 +135,16 @@ input[type=range]{accent-color:var(--accent)}
   <!-- ============ LANDING ============ -->
   <section id="landing">
     <div class="hero">
-      <h1>See your real Etsy profit after every fee, in 30 seconds.</h1>
-      <p class="lead">Etsy shows you sales. MakerLens shows you what you actually keep, and what the next months could look like.<br><strong>No spreadsheets, no typing:</strong> just upload your Etsy statement.</p>
-      <ul>
-        <li><strong>Real profit</strong> after transaction, processing, listing, ad and shipping-label fees</li>
-        <li><strong>Profit per product</strong>, so you can see which items lose money</li>
-        <li><strong>What you could earn in the coming months</strong>, including your busy seasons, and we show exactly how we worked it out</li>
-      </ul>
+      <h1>See what you really keep from every Etsy sale.</h1>
+      <p class="lead">Etsy shows you what you sold. MakerLens shows what's left after Etsy's fees, which products are worth it, and what the next months could bring.<br><strong>No spreadsheets, no typing:</strong> just upload your Etsy statement.</p>
+      <div class="preview" id="previewCard" title="Try it with sample data">
+        <div class="preview-head"><span>Product</span><span>You keep per sale</span></div>
+        <div class="preview-row"><span>Holiday Gift Box</span><span>$18.11</span></div>
+        <div class="preview-row"><span>Cedarwood Candle <span class="badge ok">⭐ Top earner</span></span><span>$11.30</span></div>
+        <div class="preview-row"><span>Lavender Soy Candle</span><span>$9.11</span></div>
+        <div class="preview-row bad"><span>Mini Candle Trio <span class="badge lose">losing money</span></span><span>−$3.67</span></div>
+        <p class="preview-cap">Example shop. See in seconds which products make money, and which don't.</p>
+      </div>
       <div class="privacy">🔒 100% free. No sign-up. No typing. Your data never leaves your browser.</div>
       <p class="note" style="margin:-12px 0 20px">Don't just trust us: once this page has loaded, turn off your Wi-Fi and upload your files. It still works, because nothing is ever sent anywhere.</p>
       <div class="btns">
@@ -913,6 +933,7 @@ function makeSample(){
 }
 
 /* ---------- wire up ---------- */
+document.getElementById("previewCard").addEventListener("click", () => document.getElementById("trySample").click());
 document.getElementById("trySample").addEventListener("click", () => {
   const s = makeSample();
   state.statementRows = parseCSV(s.statementCSV);
