@@ -439,7 +439,15 @@ function detectKind(rows){
 }
 
 /* ---------- the core calculations ---------- */
-function feeBucket(type){
+// Real Etsy statements use a broad Type ("Fee", "Marketing", "Tax") and put the detail in Title,
+// e.g. "Listing fee", "Transaction fee: Blue Mug", "Tax: Transaction". Look at both, Title first.
+function feeBucket(type, title = ""){
+  const t = title.toLowerCase().split(":")[0];
+  if (type === "tax" || t.startsWith("tax") || t.includes("vat")) return "Tax on fees";
+  return feeBucketFrom(t + " " + type);
+}
+function feeBucketFrom(type){
+  if (type.includes("processing")) return "Payment processing";
   if (type.includes("transaction")) return "Transaction fees";
   if (type.includes("listing")) return "Listing fees";
   if (type.includes("marketing") || type.includes("offsite")) return "Ads & marketing";
@@ -480,10 +488,12 @@ function analyze(){
     } else if (type === "refund"){
       refunds += net; m.refunds += net;
       costLines.push({ order:orderId(r), title:"", amount:net, kind:"pct" });
+    } else if (/(sales tax|vat) paid by buyer/i.test(col(r, "Title") || "")){
+      gross += net; m.sales += net; // tax the buyer paid on top of your price: not your money, not your fee
     } else {
-      const b = feeBucket(type);
+      const b = feeBucket(type, col(r, "Title") || "");
       fees[b] = (fees[b] || 0) + net; m.fees += net;
-      const kind = (b === "Transaction fees" || b === "Ads & marketing" || b === "Tax on fees") ? "pct" : "fixed";
+      const kind = (b === "Transaction fees" || b === "Payment processing" || b === "Ads & marketing" || b === "Tax on fees") ? "pct" : "fixed";
       costLines.push({ order:orderId(r), title:col(r, "Title") || "", amount:net, kind });
     }
     m.net += net;
@@ -927,6 +937,7 @@ const hasCol = (rows, name) => rows.length > 0 && Object.keys(rows[0]).some(k =>
 // level "error" = we can't use this file; level "warn" = usable, but something will be missing.
 function checkFile(f){
   if (f.notCsv) return { level:"error", text:`<strong>${esc(f.name)}</strong> isn't a CSV file. Etsy's downloads end in <strong>.csv</strong>. ${HOW_STATEMENT}` };
+  if (f.quietMonth) return { level:"warn", text:`<strong>${esc(f.name)}</strong> has no transactions. That's fine: it just means nothing happened that month.` };
   if (!f.rows.length) return { level:"error", text:`<strong>${esc(f.name)}</strong> is empty. ${HOW_STATEMENT}` };
   if (f.kind === "statement"){
     if (!hasCol(f.rows, "Date")) return { level:"error", text:`<strong>${esc(f.name)}</strong> is missing the <strong>Date</strong> column, so we can't sort it by month. ${HOW_STATEMENT}` };
@@ -945,7 +956,9 @@ function handleFiles(fileList){
     if (!/\.csv$/i.test(f.name) && f.type !== "text/csv") return Promise.resolve({ name:f.name, kind:"unknown", rows:[], notCsv:true });
     return f.text().then(t => {
       const rows = parseCSV(t);
-      return { name:f.name, kind:detectKind(rows), rows };
+      const head = (t.replace(/^\uFEFF/, "").split(/\r?\n/)[0] || "").toLowerCase();
+      const quietMonth = !rows.length && /\btype\b/.test(head) && /\bnet\b/.test(head);
+      return { name:f.name, kind: quietMonth ? "statement" : detectKind(rows), rows, quietMonth };
     });
   })).then(parsed => {
     for (const p of parsed){
