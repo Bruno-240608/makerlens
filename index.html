@@ -97,6 +97,11 @@ tr.loss td{background:var(--bad-soft)}
 .steps li{margin:4px 0}
 .steps li.done{color:var(--accent)}
 .steps em{color:var(--muted);font-style:normal}
+.privacy-more{margin:-8px 0 22px;font-size:14px;max-width:640px}
+.privacy-more summary{cursor:pointer;color:var(--accent);font-weight:600}
+.privacy-more ul{padding-left:20px;margin:10px 0}
+.privacy-more li{margin:6px 0}
+.privacy-more a,footer a{color:var(--accent)}
 .badge.lose{background:var(--bad);color:#fff}
 .badge.ok{background:var(--accent-soft);color:var(--accent)}
 .badge.mid{background:var(--warn-soft);color:var(--warn)}
@@ -152,6 +157,16 @@ input[type=range]{accent-color:var(--accent)}
       </div>
       <div class="privacy">🔒 100% free. No sign-up. No typing. Your data never leaves your browser.</div>
       <p class="note" style="margin:-12px 0 20px">Don't just trust us: once this page has loaded, turn off your Wi-Fi and upload your files. It still works, because nothing is ever sent anywhere.</p>
+      <details class="privacy-more" id="privacyDetails">
+        <summary>Privacy, in plain words</summary>
+        <ul>
+          <li><strong>Your files are read on your computer.</strong> All the maths happens in your own browser. Your Etsy files are never uploaded, to me or anyone else.</li>
+          <li><strong>What's saved:</strong> only the product costs you type in and your currency, kept in your own browser so you don't have to retype them. You can delete them any time.</li>
+          <li><strong>What's never collected:</strong> your files, sales, customer names or anything else from Etsy. There's no account, no database and no AI involved.</li>
+          <li><strong>Check it yourself:</strong> the full code is public <a href="https://github.com/Bruno-240608/makerlens" target="_blank" rel="noopener">on GitHub</a>.</li>
+        </ul>
+        <button id="clearData">Clear my saved data</button> <span id="clearMsg" class="note"></span>
+      </details>
       <div class="btns">
         <button class="primary" id="trySample">Try with sample data</button>
         <button id="goUpload">Upload my Etsy files</button>
@@ -291,7 +306,9 @@ input[type=range]{accent-color:var(--accent)}
 
 <footer>
   MakerLens is a free student project, built by Bruno, a Computer Science &amp; Business student at Northeastern University.<br>
-  Not affiliated with Etsy. Figures are for guidance only, not financial or tax advice.
+  Not affiliated with Etsy. Figures are for guidance only, not financial or tax advice.<br>
+  <a href="#privacyDetails" id="footPrivacy">Privacy</a> · <a href="https://github.com/Bruno-240608/makerlens" target="_blank" rel="noopener">Source code</a>
+  <div id="footPrivacySlot" style="text-align:left;max-width:640px;margin:12px auto 0"></div>
 </footer>
 
 <script>
@@ -987,6 +1004,17 @@ document.getElementById("addItemsInput").addEventListener("change", e => {
     document.getElementById("productsCard").scrollIntoView({ behavior:"smooth", block:"start" });
   });
   e.target.value = "";
+});
+document.getElementById("clearData").addEventListener("click", () => {
+  try{ localStorage.removeItem("makerlens-costs"); localStorage.removeItem("makerlens-currency"); }catch(e){}
+  state.costs = {};
+  document.getElementById("clearMsg").textContent = "Done. Nothing from MakerLens is saved in this browser now.";
+  if (!document.getElementById("app").classList.contains("hidden") && !state.isSample) render();
+});
+document.getElementById("footPrivacy").addEventListener("click", () => {
+  const d = document.getElementById("privacyDetails"); if (d) d.open = true;
+  // in the results view the landing page is hidden, so show the privacy box in the footer instead
+  if (document.getElementById("landing").classList.contains("hidden")) document.getElementById("footPrivacySlot").appendChild(d);
 });
 document.getElementById("previewCard").addEventListener("click", () => document.getElementById("trySample").click());
 document.getElementById("trySample").addEventListener("click", () => {
