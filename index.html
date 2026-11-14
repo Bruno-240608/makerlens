@@ -175,6 +175,7 @@ input[type=range]{accent-color:var(--accent)}
           <li><strong>Your files are read on your computer.</strong> All the maths happens in your own browser. Your Etsy files are never uploaded, to me or anyone else.</li>
           <li><strong>What's saved:</strong> only the product costs you type in and your currency, kept in your own browser so you don't have to retype them. You can delete them any time.</li>
           <li><strong>What's never collected:</strong> your files, sales, customer names or anything else from Etsy. There's no account, no database and no AI involved.</li>
+          <li><strong>Visit counter:</strong> I count page visits with GoatCounter, which uses no cookies and doesn't track you. It only knows a page was opened, never anything about your files.</li>
           <li><strong>Check it yourself:</strong> the full code is public <a href="https://github.com/Bruno-240608/makerlens" target="_blank" rel="noopener">on GitHub</a>.</li>
         </ul>
         <button id="clearData">Clear my saved data</button> <span id="clearMsg" class="note"></span>
@@ -1108,5 +1109,7 @@ document.getElementById("boost").addEventListener("input", e => { state.boost = 
 state.currency = safeGet("makerlens-currency", "$");
 document.getElementById("currency").value = state.currency;
 </script>
+<!-- Visit counter: GoatCounter (no cookies, no personal tracking, never sees uploaded files) -->
+<script data-goatcounter="https://baptmar.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 </body>
 </html>
