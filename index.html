@@ -147,6 +147,10 @@ input[type=range]{accent-color:var(--accent)}
         <option value="$">$ USD</option>
         <option value="£">£ GBP</option>
         <option value="€">€ EUR</option>
+        <option value="CA$">CA$ CAD</option>
+        <option value="A$">A$ AUD</option>
+        <option value="₫">₫ VND</option>
+        <option value="₹">₹ INR</option>
       </select>
     </label>
   </div>
@@ -229,6 +233,7 @@ input[type=range]{accent-color:var(--accent)}
       <h2>Overview</h2>
       <p class="sub" id="periodText"></p>
       <div class="grid" id="stats"></div>
+      <div id="currencyNote"></div>
       <div id="materialsNote"></div>
     </div>
     <div class="card">
@@ -470,6 +475,7 @@ function analyze(){
   const fees = {};
   const costLines = []; // every fee/refund line: { order, title, amount (negative) }
   let gross = 0, refunds = 0;
+  const saleByOrder = {}; // order number -> what the buyer paid, in your statement currency
 
   // 1) Monthly statements: money in, every fee
   for (const r of state.statementRows){
@@ -483,6 +489,7 @@ function analyze(){
     const net = money(col(r, "Net"));
     if (type === "sale"){
       gross += amount; m.sales += amount;
+      const so = orderId(r); if (so) saleByOrder[so] = (saleByOrder[so] || 0) + amount;
       if (feeTax){ fees["Payment processing"] = (fees["Payment processing"] || 0) + feeTax; m.fees += feeTax; }
       if (feeTax) costLines.push({ order:orderId(r), title:"", amount:feeTax, kind:"pct" });
     } else if (type === "refund"){
@@ -503,17 +510,49 @@ function analyze(){
   // 2) Order Items: which products sold, and material costs
   const products = {};
   const orders = {}; // order number -> [{ name, revenue }]
+
+  // First group the lines by order. In Etsy's Order Items file, "Item Total" is BEFORE discounts,
+  // and the discount (and shipping, and sales tax) for the whole order sits on the order's first line only.
+  const lines = [], byOrder = {};
   for (const r of state.itemRows){
-    const name = col(r, "Item Name", "Title") || "Unnamed item";
     const qty = parseFloat(col(r, "Quantity")) || 1;
-    let revenue = money(col(r, "Item Total"));
-    if (!revenue) revenue = money(col(r, "Price")) * qty;
-    const p = (products[name] ??= { name, units:0, revenue:0 });
-    p.units += qty; p.revenue += revenue;
-    const oid = String(col(r, "Order ID") || "").replace(/\D/g, "");
-    if (oid) (orders[oid] ??= []).push({ name, revenue });
-    const d = parseDate(col(r, "Sale Date", "Date Paid", "Date"));
-    if (d) ensure(monthKey(d)).materials += (state.costs[name] || 0) * qty;
+    let total = money(col(r, "Item Total"));
+    if (!total) total = money(col(r, "Price")) * qty;
+    const line = {
+      name: col(r, "Item Name", "Title") || "Unnamed item", qty, total,
+      discount: Math.abs(money(col(r, "Discount Amount"))),
+      extras: money(col(r, "Order Shipping")) + money(col(r, "Order Sales Tax")) - Math.abs(money(col(r, "Shipping Discount"))),
+      oid: String(col(r, "Order ID") || "").replace(/\D/g, ""),
+      date: parseDate(col(r, "Sale Date", "Date Paid", "Date")),
+    };
+    lines.push(line);
+    (byOrder[line.oid || ("line" + lines.length)] ??= []).push(line);
+  }
+
+  // Your statement and your orders can be in different currencies (e.g. orders in USD, payouts in VND).
+  // Etsy's statement shows what each order became in your currency, so we use that order's own exchange rate.
+  const itemCur = (state.itemRows.find(r => col(r, "Currency")) || {})["Currency"] || "";
+  const stmtCur = (state.statementRows.find(r => col(r, "Currency")) || {})["Currency"] || "";
+  const convert = itemCur && stmtCur && itemCur.toUpperCase() !== stmtCur.toUpperCase();
+  const fx = {}; let fxSale = 0, fxPaid = 0;
+  for (const [oid, ls] of Object.entries(byOrder)){
+    const discount = sum(ls.map(l => l.discount));
+    const paid = sum(ls.map(l => l.total)) - discount + sum(ls.map(l => l.extras));
+    for (const l of ls){
+      const share = sum(ls.map(x => x.total)) ? l.total / sum(ls.map(x => x.total)) : 1 / ls.length;
+      l.revenue = l.total - discount * share; // price after this item's share of the order discount
+    }
+    if (convert && saleByOrder[oid] && paid > 0){ fx[oid] = saleByOrder[oid] / paid; fxSale += saleByOrder[oid]; fxPaid += paid; }
+  }
+  const avgFx = fxPaid ? fxSale / fxPaid : 1;
+  state.currencyNote = convert ? { itemCur, stmtCur, matched: Object.keys(fx).length, orders: Object.keys(byOrder).length } : null;
+
+  for (const l of lines){
+    const revenue = convert ? l.revenue * (fx[l.oid] || avgFx) : l.revenue;
+    const p = (products[l.name] ??= { name:l.name, units:0, revenue:0 });
+    p.units += l.qty; p.revenue += revenue;
+    if (l.oid) (orders[l.oid] ??= []).push({ name:l.name, revenue });
+    if (l.date) ensure(monthKey(l.date)).materials += (state.costs[l.name] || 0) * l.qty;
   }
   const hasItems = Object.keys(products).length > 0;
 
@@ -529,10 +568,14 @@ function analyze(){
   //  - "Transaction fee: <product>" goes straight to that product
   //  - shop-wide costs (monthly Etsy Ads, subscription...) are shared by sales
   for (const p of productList){ p.fees = 0; p.pctFees = 0; p.fixedFees = 0; }
+  const hasOrderIds = Object.keys(orders).length > 0;
   const charge = (prod, amount, kind) => { prod.fees += amount; if (kind === "pct") prod.pctFees += amount; else prod.fixedFees += amount; };
-  let shopWide = 0, linked = 0;
+  let shopWide = 0, linked = 0, otherOrders = 0;
   for (const c of costLines){
     const items = c.order ? orders[c.order] : null;
+    // a fee or refund for an order that isn't in your Order Items file (e.g. a December order refunded in January)
+    // belongs to a product we can't see, so don't load it onto this period's products
+    if (c.order && !items && hasOrderIds){ otherOrders += c.amount; continue; }
     if (!items){ shopWide += c.amount; continue; }
     linked += c.amount;
     const named = items.find(it => c.title && c.title.toLowerCase().includes(it.name.toLowerCase()));
@@ -542,7 +585,7 @@ function analyze(){
   }
   // shop-wide costs (monthly ads, subscription) don't change when one price changes -> fixed
   for (const p of productList) charge(p, shopWide * (itemRevenue ? p.revenue / itemRevenue : 0), "fixed");
-  const feeSplit = { linked, shopWide, exact: costLines.length > 0 && linked !== 0 };
+  const feeSplit = { linked, shopWide, otherOrders, exact: costLines.length > 0 && linked !== 0 };
 
   for (const p of productList){
     p.materials = (state.costs[p.name] || 0) * p.units;
@@ -657,6 +700,8 @@ function render(){
     return;
   }
 
+  const cn = state.currencyNote;
+  $("currencyNote").innerHTML = cn && !state.isSample ? `<p class="note">ℹ️ Your Etsy statement is in <strong>${esc(cn.stmtCur)}</strong> but your orders are in <strong>${esc(cn.itemCur)}</strong>. Everything is shown in ${esc(cn.stmtCur)}: each order is converted at the rate Etsy actually used for it (${cn.matched} of ${cn.orders} orders matched; the rest use your average rate).</p>` : "";
   $("shopTitle").textContent = state.isSample ? "Sample shop: Willow & Wick Candles" : "Your shop";
   $("periodText").textContent = `${MONTHS_LONG[+a.keys[0].slice(5)-1]} ${a.keys[0].slice(0,4)} to ${MONTHS_LONG[+a.keys.at(-1).slice(5)-1]} ${a.keys.at(-1).slice(0,4)} · ${a.keys.length} month${a.keys.length>1?"s":""} of data`;
 
@@ -698,6 +743,7 @@ function render(){
     const pctLinked = (a.feeSplit.linked + a.feeSplit.shopWide) ? a.feeSplit.linked / (a.feeSplit.linked + a.feeSplit.shopWide) : 0;
     $("feeNote").innerHTML = a.feeSplit.exact
       ? `ℹ️ <strong>How exact is this?</strong> <strong>${Math.round(pctLinked * 100)}%</strong> of your fees and refunds are matched to the exact order they came from (so a shipping label is charged to the item that was shipped). The rest (shop-wide costs like monthly Etsy Ads) is shared between products by their sales.`
+        + (a.feeSplit.otherOrders ? ` <strong>${fmt(a.feeSplit.otherOrders)}</strong> of fees and refunds belong to orders that aren't in your Order Items file (often orders from an earlier month), so they count in your shop's total profit but not in this table. Add the Order Items file for those months to include them.` : "")
       : `ℹ️ <strong>How exact is this?</strong> Etsy fees and refunds are shared between products by their sales. That part is an estimate, because we couldn't match fees to individual orders in your files.`;
     // one-line summary so losing products are seen first, even with lots of products
     const losers = a.productList.filter(p => p.profit < 0).sort((x, y) => x.profit - y.profit);
@@ -835,7 +881,7 @@ function updateWhatIf(){
   // No guessing about customers: just how many sales you could lose (or would need to gain)
   // to end up with the same total profit as now.
   let label = "Sales vs now", value = "same price", msg = "";
-  const same = Math.abs(newPrice - m.price) < 0.005;
+  const same = Math.abs(newPrice - m.price) <= Math.max(0.005, m.price * 0.002); // ignore slider rounding
   if (same){
     msg = `<p class="note">This is your current average price. Move the slider to compare.</p>`;
   } else if (next <= 0){
@@ -987,6 +1033,10 @@ function startAnalysis(){
   state.itemRows = state.files.filter(f => f.kind === "items").flatMap(f => f.rows);
   state.isSample = false;
   state.costs = safeGet("makerlens-costs", {});
+  // show money in the currency of the seller's statement
+  const CUR = { USD:"$", GBP:"£", EUR:"€", CAD:"CA$", AUD:"A$", VND:"₫", INR:"₹" };
+  const code = ((state.statementRows.find(r => col(r, "Currency")) || {})["Currency"] || "").toUpperCase();
+  if (CUR[code]){ state.currency = CUR[code]; document.getElementById("currency").value = state.currency; }
   showApp();
 }
 function showApp(){
