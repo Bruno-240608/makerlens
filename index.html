@@ -114,6 +114,11 @@ details.how{margin-top:10px}
 details.how summary{cursor:pointer;color:var(--accent);font-size:14px}
 .guess{margin-top:12px;padding:12px 14px;border:1px dashed var(--line);border-radius:10px;font-size:14px}
 .guess input,.guess select{margin:0 4px}
+table.glance td,table.glance th{text-align:right}
+table.glance td:first-child,table.glance th:first-child{text-align:left}
+table.glance tr.total td{font-weight:700;border-top:2px solid var(--text)}
+table.glance .range{font-weight:400;font-size:12px;color:var(--muted)}
+table.glance .muted{color:var(--muted)}
 .badge.lose{background:var(--bad);color:#fff}
 .badge.ok{background:var(--accent-soft);color:var(--accent)}
 .badge.mid{background:var(--warn-soft);color:var(--warn)}
@@ -327,6 +332,7 @@ input[type=range]{accent-color:var(--accent)}
       <div class="chart" id="forecastChart" style="margin-top:12px"></div>
       <div id="forecastWarn"></div>
       <div class="tablewrap" style="margin-top:12px"><table id="forecastTable"></table></div>
+      <div id="fcSummary"></div>
       <details class="how">
         <summary>How is this worked out?</summary>
         <div id="method" style="font-size:14px"></div>
@@ -789,9 +795,41 @@ function render(){
   renderForecast(a);
 }
 
+// "At a glance": the last months next to the forecast, line by line (a plain-words income statement).
+// The forecast predicts profit; each line keeps the same share of sales it had in the past months.
+function renderFcSummary(a, f){
+  const el = document.getElementById("fcSummary");
+  if (!f || !f.rows.length){ el.innerHTML = ""; return; }
+  const n = f.rows.length, past = a.keys.slice(-n);
+  const tot = key => sum(past.map(k => a.months[k][key] || 0));
+  const P = { sales:tot("sales"), fees:tot("fees"), refunds:tot("refunds"), materials:-tot("materials"), net:tot("net") };
+  P.other = P.net - P.sales - P.fees - P.refunds;
+  P.keep = P.net + P.materials;
+  const F = sum(f.rows.map(r => r.value)), lo = sum(f.rows.map(r => r.low)), hi = sum(f.rows.map(r => r.high));
+  const canSplit = P.keep > 0 && F > 0;
+  const k = canSplit ? F / P.keep : 0;
+  const lines = [["Sales", "sales"], ["Etsy fees", "fees"], ["Refunds", "refunds"], ["Other Etsy adjustments", "other"], ["Your materials", "materials"]]
+    .filter(([, key]) => Math.abs(P[key]) >= 0.005);
+  const cell = v => `<td class="${v < 0 ? "neg" : ""}">${fmt(v)}</td>`;
+  const fcCell = v => canSplit ? `<td class="${v < 0 ? "neg" : ""}">${fmt(v, {round:true})}</td>` : `<td class="muted">n/a</td>`;
+  const pastLabel = past.length === 1 ? "Last month" : `Last ${past.length} months`;
+  el.innerHTML = `
+    <h3 style="margin:22px 0 6px">Your next ${n} month${n > 1 ? "s" : ""} at a glance</h3>
+    <p class="sub" style="margin-top:0">Where the money goes, now and if the forecast happens.</p>
+    <div class="tablewrap"><table class="glance">
+      <tr><th></th><th>${pastLabel}</th><th>Next ${n} month${n > 1 ? "s" : ""} (estimate)</th></tr>
+      ${lines.map(([label, key]) => `<tr><td>${label}</td>${cell(P[key])}${fcCell(P[key] * k)}</tr>`).join("")}
+      <tr class="total"><td>What you keep</td>${cell(P.keep)}<td class="${F < 0 ? "neg" : ""}">${fmt(F, {round:true})}<div class="range">likely ${fmt(lo, {round:true})} to ${fmt(hi, {round:true})}</div></td></tr>
+    </table></div>
+    <details class="how"><summary>How is this worked out?</summary><p class="note">${canSplit
+      ? `The forecast predicts what you keep. Each line (sales, fees, refunds, materials) is assumed to stay the same share of your sales as in the ${pastLabel.toLowerCase()}, so if Etsy changes its fees or you change your prices, these lines will change too. This is an estimate, not financial advice.`
+      : `We can't split the forecast into lines because what you keep was zero or negative, so the shares would be meaningless. The total is still shown.`}</p></details>`;
+}
+
 function renderForecast(a){
   const $ = id => document.getElementById(id);
   const f = forecast(a);
+  renderFcSummary(a, f);
   if (!f) return;
   const canAuto = a.keys.length >= 12;
   $("autoSeason").disabled = !canAuto;
