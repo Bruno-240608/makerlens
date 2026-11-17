@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MakerLens: Free Etsy Profit Calculator</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='13' cy='13' r='10' fill='%23e3efe9' stroke='%232f6f5e' stroke-width='3'/%3E%3Cline x1='20.5' y1='20.5' x2='29' y2='29' stroke='%232f6f5e' stroke-width='4' stroke-linecap='round'/%3E%3Crect x='8' y='13' width='3' height='5' rx='1' fill='%232f6f5e'/%3E%3Crect x='12' y='10' width='3' height='8' rx='1' fill='%232f6f5e'/%3E%3Crect x='16' y='7' width='3' height='11' rx='1' fill='%232f6f5e'/%3E%3C/svg%3E">
-<meta name="description" content="A fast and easy way to see how your Etsy products are doing now, and where they're heading. Free, no typing, and your data never leaves your browser.">
+<meta name="description" content="A fast and easy way to see how your Etsy products are doing now, and where they're heading. Free, no spreadsheets, and your data never leaves your browser.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://bruno-240608.github.io/makerlens/">
 <meta property="og:title" content="MakerLens: see your real Etsy profit, product by product">
-<meta property="og:description" content="A fast and easy way to see how your Etsy products are doing now, and where they're heading. Free, no typing, and your data never leaves your browser.">
+<meta property="og:description" content="A fast and easy way to see how your Etsy products are doing now, and where they're heading. Free, no spreadsheets, and your data never leaves your browser.">
 <meta property="og:image" content="https://bruno-240608.github.io/makerlens/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -119,6 +119,22 @@ table.glance td:first-child,table.glance th:first-child{text-align:left}
 table.glance tr.total td{font-weight:700;border-top:2px solid var(--text)}
 table.glance .range{font-weight:400;font-size:12px;color:var(--muted)}
 table.glance .muted{color:var(--muted)}
+.warn.strong{border-left:4px solid var(--bad)}
+.warn a{color:inherit;font-weight:600}
+.muted{color:var(--muted)}
+.cost-input.need{border:2px solid #e0a100;background:#fff8e1}
+@media (prefers-color-scheme: dark){.cost-input.need{background:#3a3000}}
+@media (max-width:640px){
+  table.cards, table.cards tbody, table.cards tr, table.cards td{display:block;width:100%}
+  table.cards tr:first-child{display:none}
+  table.cards tr{border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin:0 0 10px;background:var(--card)}
+  table.cards td{display:flex;justify-content:space-between;gap:12px;text-align:right;border:none;padding:5px 0;white-space:normal}
+  table.cards td::before{content:attr(data-label);color:var(--muted);text-align:left;font-weight:400}
+  table.cards td:first-child{display:block;text-align:left;font-weight:600;padding-bottom:6px;border-bottom:1px solid var(--line);margin-bottom:4px}
+  table.cards td:first-child::before{content:none}
+  table.cards tr.loss{border-color:var(--bad)}
+  table.cards .cost-input{width:110px}
+}
 .badge.lose{background:var(--bad);color:#fff}
 .badge.ok{background:var(--accent-soft);color:var(--accent)}
 .badge.mid{background:var(--warn-soft);color:var(--warn)}
@@ -167,7 +183,7 @@ input[type=range]{accent-color:var(--accent)}
   <section id="landing">
     <div class="hero">
       <h1>See what you really keep from every Etsy sale.</h1>
-      <p class="lead">Etsy shows you what you sold. MakerLens shows what's left after Etsy's fees, which products are worth it, and what the next months could bring.<br><strong>No spreadsheets, no typing:</strong> just upload your Etsy statement.</p>
+      <p class="lead">Etsy shows you what you sold. MakerLens shows what's left after Etsy's fees, which products are worth it, and what the next months could bring.<br><strong>No spreadsheets:</strong> upload the files Etsy already gives you, then add what each item costs you.</p>
       <div class="preview" id="previewCard" title="Try it with sample data">
         <div class="preview-head"><span>Product</span><span>You keep per sale</span></div>
         <div class="preview-row"><span>Holiday Gift Box</span><span>$18.11</span></div>
@@ -176,7 +192,7 @@ input[type=range]{accent-color:var(--accent)}
         <div class="preview-row bad"><span>Mini Candle Trio <span class="badge lose">losing money</span></span><span>−$3.67</span></div>
         <p class="preview-cap">Example shop. See in seconds which products make money, and which don't.</p>
       </div>
-      <div class="privacy">🔒 100% free. No sign-up. No typing. Your data never leaves your browser.</div>
+      <div class="privacy">🔒 100% free. No sign-up. Your data never leaves your browser.</div>
       <p class="note" style="margin:-12px 0 20px">Don't just trust us: once this page has loaded, turn off your Wi-Fi and upload your files. It still works, because nothing is ever sent anywhere.</p>
       <details class="privacy-more" id="privacyDetails">
         <summary>Privacy, in plain words</summary>
@@ -363,6 +379,7 @@ const state = {
   currency: "$",
   costs: {},               // product name -> cost per unit
   materialsPct: 0,         // fallback when no Order Items file
+  materialsPctSet: false,  // has the seller typed a %? (0 typed on purpose is different from "not added yet")
   horizon: 6,
   autoSeason: true,
   busyMonths: new Set([10, 11]), // Nov, Dec (0-based)
@@ -623,6 +640,13 @@ function analyze(){
   return { months, keys, fees, totalFees, gross, refunds, payout, materials, profit, productList, hasItems, feeSplit, shopRates };
 }
 
+// On phones, wide tables turn into one card per row: each cell needs its column name
+function labelCells(table){
+  const heads = [...table.querySelectorAll("tr:first-child th")].map(th => th.textContent);
+  table.classList.add("cards");
+  table.querySelectorAll("tr").forEach((tr, i) => { if (i) [...tr.cells].forEach((td, j) => td.dataset.label = heads[j] || ""); });
+}
+
 /* ---------- forecast ---------- */
 function forecast(a){
   const { months, keys } = a;
@@ -712,26 +736,34 @@ function render(){
   $("periodText").textContent = `${MONTHS_LONG[+a.keys[0].slice(5)-1]} ${a.keys[0].slice(0,4)} to ${MONTHS_LONG[+a.keys.at(-1).slice(5)-1]} ${a.keys.at(-1).slice(0,4)} · ${a.keys.length} month${a.keys.length>1?"s":""} of data`;
 
   const margin = a.gross ? a.profit / a.gross : 0;
+  // until the seller tells us their costs, the profit is "before your costs", not real profit
+  const missingCount = a.hasItems ? a.productList.filter(p => !state.costs[p.name]).length : 0;
+  const noCosts = a.hasItems ? missingCount === a.productList.length : !state.materialsPctSet;
+  const someMissing = a.hasItems && missingCount > 0 && !noCosts;
+  state.costsIncomplete = noCosts || someMissing;
   $("stats").innerHTML = [
     ["Total sales", fmt(a.gross)],
     ["Etsy fees", fmt(a.totalFees)],
     ["Refunds", fmt(a.refunds)],
-    ["Your material costs", fmt(-a.materials)],
-    ["Real profit", fmt(a.profit), true],
-    ["% of each sale you keep", pct(margin), true],
+    ["Your material costs", noCosts ? `<span class="muted">not added yet</span>` : fmt(-a.materials)],
+    [noCosts ? "Profit before your costs" : someMissing ? "Real profit (some costs missing)" : "Real profit", fmt(a.profit), true],
+    [noCosts ? "% you keep before your costs" : "% of each sale you keep", pct(margin), true],
   ].map(([l, v, hl]) => `<div class="stat${hl?" highlight":""}"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
 
   // materials note / fallback input
   if (!a.hasItems){
-    $("materialsNote").innerHTML = `<div class="warn">No Order Items file, so we can't see per-product costs. Enter your material costs as a % of sales:
-      <input type="number" id="matPct" min="0" max="100" value="${state.materialsPct}" style="width:70px">%</div>`;
-    $("matPct").addEventListener("change", e => { state.materialsPct = parseFloat(e.target.value) || 0; render(); });
+    $("materialsNote").innerHTML = `<div class="warn${state.materialsPctSet ? "" : " strong"}">${state.materialsPctSet ? "" : "⚠️ <strong>This isn't your real profit yet:</strong> it doesn't include what your materials cost you. "}Roughly what % of your sales goes on materials and packaging?
+      <input type="number" id="matPct" min="0" max="100" value="${state.materialsPctSet ? state.materialsPct : ""}" placeholder="e.g. 30" style="width:80px">%</div>`;
+    $("matPct").addEventListener("change", e => { const v = parseFloat(e.target.value); state.materialsPctSet = !isNaN(v); state.materialsPct = isNaN(v) ? 0 : v; render(); });
     $("productsCard").classList.add("hidden");
     $("unlockCard").classList.toggle("hidden", state.isSample);
   } else {
     $("unlockCard").classList.add("hidden");
     const missing = a.productList.filter(p => !state.costs[p.name]).length;
-    $("materialsNote").innerHTML = missing ? `<div class="warn">${missing} product${missing>1?"s":""} still ${missing>1?"have":"has"} no material cost. Add them below for an accurate profit.</div>` : "";
+    $("materialsNote").innerHTML = !missing ? ""
+      : missing === a.productList.length
+        ? `<div class="warn strong">⚠️ <strong>This isn't your real profit yet:</strong> it doesn't include what your materials cost you. <a href="#secProducts">Type what each item costs you</a> in the Products table (the highlighted boxes).</div>`
+        : `<div class="warn">${missing} product${missing>1?"s":""} still ${missing>1?"have":"has"} no material cost. <a href="#secProducts">Add ${missing>1?"them":"it"}</a> for an accurate profit.</div>`;
     $("productsCard").classList.remove("hidden");
   }
 
@@ -758,23 +790,27 @@ function render(){
       const shown = losers.slice(0, 3).map(p => `<strong>${esc(p.name)}</strong> (${fmt(p.profit)})`).join(", ");
       const more = losers.length > 3 ? ` and ${losers.length - 3} more` : "";
       $("productSummary").innerHTML = `<div class="warn">⚠️ <strong>${losers.length} product${losers.length > 1 ? "s lose" : " loses"} money:</strong> ${shown}${more}. ${losers.length > 3 ? "They're shown in red in the table." : ""}</div>`;
+    } else if (a.productList.length && missingCosts){
+      $("productSummary").innerHTML = `<div class="warn">✏️ <strong>Type what each item costs you</strong> (the highlighted boxes) to see which products really make money. Until then, profits here don't include your materials.</div>`;
     } else if (a.productList.length){
       const top = a.productList[0];
-      $("productSummary").innerHTML = `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✅ None of your products lose money${missingCosts ? " (based on the costs you've entered so far)" : ""}. Top earner: <strong>${esc(top.name)}</strong> (${fmt(top.profit)}).</div>`;
+      $("productSummary").innerHTML = `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✅ None of your products lose money. Top earner: <strong>${esc(top.name)}</strong> (${fmt(top.profit)}).</div>`;
     } else $("productSummary").innerHTML = "";
     const table = $("productTable");
     const active = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.product : null;
     const profitable = a.productList.filter(p => p.profit > 0);
-    const topEarner = profitable.length ? profitable[0].name : null; // list is sorted by profit
-    const bestMargin = profitable.length > 1 ? profitable.reduce((b, p) => p.margin > b.margin ? p : b).name : null;
+    // no "top earner" / "best margin" badges until costs are in: they could be wrong
+    const topEarner = profitable.length && !missingCosts ? profitable[0].name : null; // list is sorted by profit
+    const bestMargin = profitable.length > 1 && !missingCosts ? profitable.reduce((b, p) => p.margin > b.margin ? p : b).name : null;
     const tags = p => (p.name === topEarner ? ' <span class="badge ok" title="Made the most profit in total">⭐ Top earner</span>' : "") +
                       (p.name === bestMargin ? ' <span class="badge ok" title="Keeps the biggest share of each sale">💎 Best margin</span>' : "");
     table.innerHTML = `<tr><th>Product</th><th>Units</th><th>Sales</th><th>Etsy fees &amp; refunds (est.)</th><th>Cost per item</th><th>Profit</th><th>Per item</th><th>% you keep</th></tr>` +
       a.productList.map(p => `<tr class="${p.profit < 0 ? "loss" : ""}">
         <td>${p.name === topEarner ? `<strong>${esc(p.name)}</strong>` : esc(p.name)}${tags(p)}${p.profit < 0 ? ' <span class="neg">· losing money</span>' : ""}</td>
         <td>${p.units}</td><td>${fmt(p.revenue)}</td><td>${fmt(p.fees)}</td>
-        <td><input class="cost-input" type="number" min="0" step="0.01" data-product="${esc(p.name)}" value="${state.costs[p.name] ?? ""}" placeholder="0.00"></td>
+        <td><input class="cost-input${state.costs[p.name] ? "" : " need"}" type="number" min="0" step="0.01" data-product="${esc(p.name)}" value="${state.costs[p.name] ?? ""}" placeholder="cost" aria-label="Cost per item for ${esc(p.name)}"></td>
         <td class="${p.profit<0?"neg":""}">${fmt(p.profit)}</td><td class="${p.profit<0?"neg":""}">${fmt(p.profitPerUnit)}</td><td>${pct(p.margin)}</td></tr>`).join("");
+    labelCells(table);
     table.querySelectorAll(".cost-input").forEach(inp => {
       inp.addEventListener("change", e => {
         const v = parseFloat(e.target.value);
@@ -854,9 +890,11 @@ function renderForecast(a){
 
   const risky = f.rows.filter(r => r.low < 0);
   $("forecastWarn").innerHTML = risky.length ? `<div class="warn">⚠ ${risky.map(r => keyToLabel(r.key)).join(", ")}: in the worst case you could lose money in ${risky.length>1?"these months":"this month"}. Keep some cash aside.</div>` : "";
+  if (state.costsIncomplete) $("forecastWarn").innerHTML += `<div class="warn">⚠️ This forecast doesn't include ${state.materialsPctSet || Object.keys(state.costs).length ? "all of " : ""}your material costs yet, so it will look higher than reality until you add them.</div>`;
 
   $("forecastTable").innerHTML = `<tr><th>Month</th><th>Busy-season effect</th><th>Slow month</th><th>Expected profit</th><th>Good month</th></tr>` +
     f.rows.map(r => `<tr><td>${MONTHS_LONG[+r.key.slice(5)-1]} ${r.key.slice(0,4)}</td><td>${seasonLabel(r.factor)}</td><td>${fmt(r.low,{round:true})}</td><td><strong>${fmt(r.value,{round:true})}</strong></td><td>${fmt(r.high,{round:true})}</td></tr>`).join("");
+  labelCells($("forecastTable"));
 
   const seasonText = f.method === "auto"
     ? `<li><strong>Busy seasons:</strong> detected automatically from your last 12 months. We compare each month's sales with your average month. For example, +100% means that month is usually twice as busy as average, and −30% means it's quieter.</li>`
