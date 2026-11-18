@@ -135,6 +135,9 @@ table.glance .muted{color:var(--muted)}
   table.cards tr.loss{border-color:var(--bad)}
   table.cards .cost-input{width:110px}
 }
+.thin{color:#b07800}
+.pos{color:var(--accent)}
+@media (prefers-color-scheme: dark){.thin{color:#e0b040}}
 .badge.lose{background:var(--bad);color:#fff}
 .badge.ok{background:var(--accent-soft);color:var(--accent)}
 .badge.mid{background:var(--warn-soft);color:var(--warn)}
@@ -315,7 +318,7 @@ input[type=range]{accent-color:var(--accent)}
       <div class="controls">
         <label>Name <input type="text" id="planName" placeholder="e.g. Rose Candle" style="width:160px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 8px"></label>
         <label>Price <input type="number" id="planPrice" min="0" step="0.01" placeholder="0.00" style="width:90px"></label>
-        <label>Cost to make one <input type="number" id="planCost" min="0" step="0.01" placeholder="0.00" style="width:90px"></label>
+        <label>Cost to make one <input type="number" id="planCost" min="0" step="0.01" placeholder="e.g. 3.50" style="width:90px"></label>
         <label>Expected sales per month <input type="number" id="planQty" min="0" step="1" value="10" style="width:70px"></label>
       </div>
       <div class="grid" id="planStats"></div>
@@ -335,6 +338,12 @@ input[type=range]{accent-color:var(--accent)}
             <option value="12">12 months</option>
           </select>
         </label>
+        <label>Base it on
+          <select id="fcBase">
+            <option value="recent" selected>my recent months</option>
+            <option value="lastyear">the same months last year</option>
+          </select>
+        </label>
         <label><input type="checkbox" id="autoSeason" checked> Detect busy season from my data (needs 12+ months)</label>
       </div>
       <div id="manualSeason">
@@ -345,6 +354,7 @@ input[type=range]{accent-color:var(--accent)}
         <div class="months" id="monthPicker"></div>
       </div>
       <div class="grid" id="forecastStats" style="margin-top:16px"></div>
+      <div id="fcExplain"></div>
       <div class="chart" id="forecastChart" style="margin-top:12px"></div>
       <div id="forecastWarn"></div>
       <div class="tablewrap" style="margin-top:12px"><table id="forecastTable"></table></div>
@@ -381,6 +391,7 @@ const state = {
   materialsPct: 0,         // fallback when no Order Items file
   materialsPctSet: false,  // has the seller typed a %? (0 typed on purpose is different from "not added yet")
   horizon: 6,
+  fcBase: "recent",        // forecast from recent months, or from the same months last year
   autoSeason: true,
   busyMonths: new Set([10, 11]), // Nov, Dec (0-based)
   boost: 30,
@@ -399,7 +410,15 @@ function fmt(n, opts={}){
   const digits = opts.round ? 0 : 2;
   return sign + state.currency + abs.toLocaleString("en-US",{minimumFractionDigits:digits, maximumFractionDigits:digits});
 }
-function seasonLabel(f){ const d = Math.round((f - 1) * 100); return d === 0 ? "normal" : (d > 0 ? "+" : "−") + Math.abs(d) + "%"; }
+// "How busy vs a normal month", in words a seller understands (no "+184%")
+function seasonLabel(f){
+  const d = Math.round((f - 1) * 100);
+  if (Math.abs(d) < 5) return "normal";
+  if (f >= 1.5) return `about ${(Math.round(f * 2) / 2).toString()}× busier`;
+  if (d > 0) return `${d}% busier`;
+  if (f <= 0.6) return f <= 0.35 ? "much quieter" : "about half as busy";
+  return `${-d}% quieter`;
+}
 function pct(n){ return (isFinite(n) ? (n*100).toFixed(1).replace("-", "−") : "0.0") + "%"; }
 function monthKey(d){ return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0"); }
 function keyToLabel(k){ const [y,m] = k.split("-"); return MONTHS[+m-1] + " " + y.slice(2); }
@@ -678,11 +697,16 @@ function forecast(a){
   for (let i = 1; i <= state.horizon; i++){
     const k = nextKey(last, i);
     const mIdx = +k.slice(5) - 1;
-    const value = base * factor[mIdx];
+    const lastYear = months[nextKey(k, -12)];
+    const useLastYear = state.fcBase === "lastyear" && keys.length >= 12 && lastYear;
+    const value = useLastYear ? lastYear.profit : base * factor[mIdx];
     const spread = Math.abs(value) * (0.10 + 0.025 * i) + Math.abs(base) * 0.02;
     rows.push({ key:k, value, low:value - spread, high:value + spread, factor:factor[mIdx] });
   }
-  return { rows, base, factor, method, recentCount: recent.length };
+  // compare with the same months last year, so we can explain a forecast that looks "too low" or "too high"
+  const ly = rows.map(r => months[nextKey(r.key, -12)]).filter(Boolean);
+  const vsLastYear = keys.length >= 12 && ly.length === rows.length ? { now: sum(rows.map(r => r.value)), then: sum(ly.map(m => m.profit)) } : null;
+  return { rows, base, factor, method, recentCount: recent.length, vsLastYear, basedOn: state.fcBase === "lastyear" && keys.length >= 12 ? "lastyear" : "recent" };
 }
 
 /* ---------- SVG bar chart ---------- */
@@ -857,7 +881,7 @@ function renderFcSummary(a, f){
       ${lines.map(([label, key]) => `<tr><td>${label}</td>${cell(P[key])}${fcCell(P[key] * k)}</tr>`).join("")}
       <tr class="total"><td>What you keep</td>${cell(P.keep)}<td class="${F < 0 ? "neg" : ""}">${fmt(F, {round:true})}<div class="range">likely ${fmt(lo, {round:true})} to ${fmt(hi, {round:true})}</div></td></tr>
     </table></div>
-    <details class="how"><summary>How is this worked out?</summary><p class="note">${canSplit
+    <details class="how"><summary>How is this table worked out?</summary><p class="note">${canSplit
       ? `The forecast predicts what you keep. Each line (sales, fees, refunds, materials) is assumed to stay the same share of your sales as in the ${pastLabel.toLowerCase()}, so if Etsy changes its fees or you change your prices, these lines will change too. This is an estimate, not financial advice.`
       : `We can't split the forecast into lines because what you keep was zero or negative, so the shares would be meaningless. The total is still shown.`}</p></details>`;
 }
@@ -868,6 +892,8 @@ function renderForecast(a){
   renderFcSummary(a, f);
   if (!f) return;
   const canAuto = a.keys.length >= 12;
+  $("fcBase").querySelector('[value="lastyear"]').disabled = !canAuto;
+  if (!canAuto){ $("fcBase").value = "recent"; }
   $("autoSeason").disabled = !canAuto;
   if (!canAuto) $("autoSeason").checked = false;
   $("manualSeason").classList.toggle("hidden", f.method === "auto");
@@ -878,10 +904,24 @@ function renderForecast(a){
   const total = sum(f.rows.map(r => r.value));
   // quarters
   const quarters = {};
-  for (const r of f.rows){ const q = `Q${Math.floor((+r.key.slice(5)-1)/3)+1} ${r.key.slice(0,4)}`; quarters[q] = (quarters[q] || 0) + r.value; }
+  for (const r of f.rows){ const q = `${r.key.slice(0,4)}-${Math.floor((+r.key.slice(5)-1)/3)}`; (quarters[q] ??= []).push(r); }
   $("forecastStats").innerHTML =
     `<div class="stat highlight"><div class="label">Next ${state.horizon} months (total)</div><div class="value">${fmt(total,{round:true})}</div></div>` +
-    Object.entries(quarters).map(([q, v]) => `<div class="stat"><div class="label">${q}${f.rows.filter(r=>`Q${Math.floor((+r.key.slice(5)-1)/3)+1} ${r.key.slice(0,4)}`===q).length<3?" (part)":""}</div><div class="value">${fmt(v,{round:true})}</div></div>`).join("");
+    Object.values(quarters).map(rs => {
+      const first = MONTHS[+rs[0].key.slice(5)-1], last = MONTHS[+rs.at(-1).key.slice(5)-1], year = rs[0].key.slice(0,4);
+      const label = rs.length === 1 ? `${first} ${year}` : `${first}–${last} ${year}`;
+      return `<div class="stat"><div class="label">${label}</div><div class="value">${fmt(sum(rs.map(r => r.value)),{round:true})}</div></div>`;
+    }).join("");
+  // one plain sentence when the forecast looks surprising next to last year
+  const vy = f.vsLastYear;
+  if (vy && Math.abs(vy.then) > 0.01){
+    const diff = (vy.now - vy.then) / Math.abs(vy.then);
+    $("fcExplain").innerHTML = f.basedOn === "lastyear"
+      ? `<p class="note">ℹ️ Based on what you made in the same months last year. If your shop has grown or slowed since then, try "my recent months".</p>`
+      : diff < -0.1 ? `<p class="note">ℹ️ This is <strong>lower than the same months last year</strong> (${fmt(vy.then,{round:true})}) because your recent months were slower than last year. If the slowdown was temporary, try basing it on "the same months last year".</p>`
+      : diff > 0.1 ? `<p class="note">ℹ️ This is <strong>higher than the same months last year</strong> (${fmt(vy.then,{round:true})}) because your recent months were stronger than last year.</p>`
+      : `<p class="note">ℹ️ About the same as the same months last year (${fmt(vy.then,{round:true})}).</p>`;
+  } else $("fcExplain").innerHTML = "";
 
   const history = a.keys.slice(-6).map(k => ({ label:keyToLabel(k), value:a.months[k].profit, kind:"actual" }));
   const future = f.rows.map(r => ({ label:keyToLabel(r.key), value:r.value, low:r.low, high:r.high, kind:"forecast" }));
@@ -892,7 +932,7 @@ function renderForecast(a){
   $("forecastWarn").innerHTML = risky.length ? `<div class="warn">⚠ ${risky.map(r => keyToLabel(r.key)).join(", ")}: in the worst case you could lose money in ${risky.length>1?"these months":"this month"}. Keep some cash aside.</div>` : "";
   if (state.costsIncomplete) $("forecastWarn").innerHTML += `<div class="warn">⚠️ This forecast doesn't include ${state.materialsPctSet || Object.keys(state.costs).length ? "all of " : ""}your material costs yet, so it will look higher than reality until you add them.</div>`;
 
-  $("forecastTable").innerHTML = `<tr><th>Month</th><th>Busy-season effect</th><th>Slow month</th><th>Expected profit</th><th>Good month</th></tr>` +
+  $("forecastTable").innerHTML = `<tr><th>Month</th><th>How busy vs a normal month</th><th>Slow month</th><th>Expected profit</th><th>Good month</th></tr>` +
     f.rows.map(r => `<tr><td>${MONTHS_LONG[+r.key.slice(5)-1]} ${r.key.slice(0,4)}</td><td>${seasonLabel(r.factor)}</td><td>${fmt(r.low,{round:true})}</td><td><strong>${fmt(r.value,{round:true})}</strong></td><td>${fmt(r.high,{round:true})}</td></tr>`).join("");
   labelCells($("forecastTable"));
 
@@ -956,7 +996,9 @@ function updateWhatIf(){
 
   // No guessing about customers: just how many sales you could lose (or would need to gain)
   // to end up with the same total profit as now.
-  let label = "Sales vs now", value = "same price", msg = "";
+  let label = "Compared with now", value = "same price", msg = "";
+  // big multiples read better as "13× as many" than "1274% more"
+  const howMuchMore = r => r >= 1 ? `about ${Math.round((1 + r) * 10) / 10}× as many sales` : `${Math.round(r * 100)}% more sales`;
   const same = Math.abs(newPrice - m.price) <= Math.max(0.005, m.price * 0.002); // ignore slider rounding
   if (same){
     msg = `<p class="note">This is your current average price. Move the slider to compare.</p>`;
@@ -964,16 +1006,18 @@ function updateWhatIf(){
     value = `<span class="neg">loses money</span>`;
     msg = `<div class="warn">At ${fmt(newPrice)} you'd lose ${fmt(-next)} on every sale, so selling more wouldn't help. Charge at least <strong>${fmt(m.breakEven)}</strong>, or lower your costs.</div>`;
   } else if (now <= 0){
-    value = "any sales";
-    msg = `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✓ Right now every sale loses money. At ${fmt(newPrice)} every sale earns ${fmt(next)}, so even if you sold fewer, you'd do better than now.</div>`;
+    label = "At this price"; value = `<span class="pos">✅ now profitable</span>`;
+    msg = `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✅ <strong>Now profitable: every sale earns money.</strong> Right now every sale loses money. At ${fmt(newPrice)} every sale earns ${fmt(next)}, so even if you sold fewer, you'd do better than now.</div>`;
   } else if (next > now){
     const drop = 1 - now / next;
-    label = "Break-even: you could lose up to"; value = `${Math.round(drop * 100)}% of sales`;
-    msg = `<p class="note">At ${fmt(newPrice)} you'd keep more per sale. Even if you sold <strong>up to ${Math.round(drop * 100)}% fewer</strong> (about ${whole(n * (1 - drop))} instead of ${whole(n)}), you'd still earn at least as much in total as now. Only you know how your customers react to price changes, so this shows how much room you have, not what will happen.</p>`;
+    label = "You can sell up to"; value = `${Math.round(drop * 100)}% fewer`;
+    msg = `<p class="note">At ${fmt(newPrice)} you'd keep more per sale. Even if you sold <strong>up to ${Math.round(drop * 100)}% fewer</strong> (about ${whole(n * (1 - drop))} instead of ${whole(n)}), you'd still earn the same in total as now. Only you know how your customers react to price changes, so this shows how much room you have, not what will happen.</p>`;
   } else {
     const rise = now / next - 1;
-    label = "Break-even: you'd need"; value = `${Math.round(rise * 100)}% more sales`;
-    msg = `<p class="note">At ${fmt(newPrice)} you'd keep less per sale. You'd need to sell <strong>${Math.round(rise * 100)}% more</strong> (about ${whole(n * (1 + rise))} instead of ${whole(n)}) just to earn the same total as now.</p>`;
+    label = "To earn the same, you'd need"; value = howMuchMore(rise);
+    msg = rise >= 1
+      ? `<div class="warn">⚠️ At ${fmt(newPrice)} you'd keep much less per sale. You'd need <strong>${howMuchMore(rise)}</strong> (about ${whole(n * (1 + rise))} instead of ${whole(n)}) just to earn the same total as now. That's very unlikely, so this price probably isn't worth it.</div>`
+      : `<p class="note">At ${fmt(newPrice)} you'd keep less per sale. You'd need to sell <strong>${Math.round(rise * 100)}% more</strong> (about ${whole(n * (1 + rise))} instead of ${whole(n)}) just to earn the same total as now.</p>`;
   }
 
   document.getElementById("wiStats").innerHTML = [
@@ -1014,28 +1058,48 @@ function updatePlan(){
   const $ = id => document.getElementById(id);
   const name = $("planName").value.trim() || "Your new product";
   const price = parseFloat($("planPrice").value);
-  const cost = parseFloat($("planCost").value) || 0;
+  const costRaw = parseFloat($("planCost").value);
+  const hasCost = !isNaN(costRaw);
+  const cost = hasCost ? costRaw : 0;
   const qty = Math.max(0, parseFloat($("planQty").value) || 0);
   const r = planRates;
-  $("planNote").innerHTML = `Based on your shop: about <strong>${pct(r.pctRate)}</strong> of each price goes to fees that grow with the price (transaction, processing, ads), plus about <strong>${fmt(r.fixedPerItem)}</strong> of fixed fees per item (shipping labels, listing fees, shared shop costs). It's an estimate: a new product's real fees can differ.`;
+  $("planNote").innerHTML = `Based on your shop: about <strong>${pct(r.pctRate)}</strong> of each price goes to fees that grow with the price (transaction, processing, ads), plus about <strong>${fmt(r.fixedPerItem)}</strong> of fixed costs per item (shipping labels, listing fees, shared shop costs). It's an estimate: a new product's real fees can differ.`;
   if (!(price > 0)){
-    $("planStats").innerHTML = ""; $("planMsg").innerHTML = `<p class="note">Type a price to see the estimate.</p>`;
+    $("planStats").innerHTML = ""; $("planMsg").innerHTML = `<p class="note">Type a price and what one costs you to make.</p>`;
     return;
   }
-  const keep = price * (1 - r.pctRate) - r.fixedPerItem - cost;
+  const afterEtsy = price * (1 - r.pctRate) - r.fixedPerItem; // what's left after Etsy and shipping, before your costs
+  const keep = afterEtsy - cost;
   const share = keep / price;
   const minPrice = r.pctRate < 1 ? (r.fixedPerItem + cost) / (1 - r.pctRate) : Infinity;
-  const cls = v => v < 0 ? "neg" : "";
+  const shipLine = `<p class="note" style="margin-top:6px">Includes about <strong>${fmt(r.fixedPerItem)}</strong> per item for shipping labels and other fixed Etsy costs (your shop's average). If this product ships differently, the real number will differ.</p>`;
+  const stat = ([l, v, hl]) => `<div class="stat${hl ? " highlight" : ""}"><div class="label">${l}</div><div class="value">${v}</div></div>`;
+
+  // Before the seller tells us the cost: only show what's left after Etsy. No verdict, no green.
+  if (!hasCost){
+    $("planStats").innerHTML = [
+      ["Left after Etsy & shipping (before your costs)", fmt(afterEtsy), true],
+      ["Minimum price if it cost you nothing", isFinite(minPrice) ? fmt(minPrice) : "n/a"],
+    ].map(stat).join("");
+    $("planMsg").innerHTML = `<div class="warn">✏️ Now type <strong>what one costs you to make</strong> to see if it's actually worth selling.</div>` + shipLine;
+    return;
+  }
+  // With the cost: real profit, and a colour that matches it (green only for a healthy margin)
+  const level = keep < 0 ? "bad" : share < 0.15 ? "thin" : "good";
+  const tone = { bad:"neg", thin:"thin", good:"pos" }[level];
   $("planStats").innerHTML = [
-    ["You'd keep per sale", `<span class="${cls(keep)}">${fmt(keep)}</span>`, true],
-    ["% of each sale you keep", `<span class="${cls(share)}">${pct(share)}</span>`, true],
+    ["You'd keep per sale", `<span class="${tone}">${fmt(keep)}</span>`, true],
+    ["% of each sale you keep", `<span class="${tone}">${pct(share)}</span>`, true],
     ["Minimum price to not lose money", isFinite(minPrice) ? fmt(minPrice) : "n/a"],
-    [`Per month (${qty} sales)`, `<span class="${cls(keep)}">${fmt(keep * qty)}</span>`],
-  ].map(([l, v, hl]) => `<div class="stat${hl ? " highlight" : ""}"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+    [`Per month (${qty} sales)`, `<span class="${tone}">${fmt(keep * qty)}</span>`],
+  ].map(stat).join("");
   const avg = r.keepShare;
-  $("planMsg").innerHTML = keep < 0
-    ? `<div class="warn">At ${fmt(price)}, ${esc(name)} would lose ${fmt(-keep)} on every sale. Charge at least <strong>${fmt(minPrice)}</strong>.</div>`
-    : `<p class="note">${esc(name)} would keep <strong>${pct(share)}</strong> of each sale. Your shop overall keeps <strong>${pct(avg)}</strong>${share >= avg ? ", so this would be one of your better products." : ", so it would pull your average down a bit."}</p>`;
+  const verdict = level === "bad"
+    ? `<div class="warn strong">❌ At ${fmt(price)}, ${esc(name)} would <strong>lose ${fmt(-keep)} on every sale</strong>. Charge at least <strong>${fmt(minPrice)}</strong>, or make it for less.</div>`
+    : level === "thin"
+      ? `<div class="warn">⚠️ ${esc(name)} would only keep <strong>${fmt(keep)}</strong> (${pct(share)}) per sale. That's very thin: one refund or a small fee change wipes it out. Your shop overall keeps <strong>${pct(avg)}</strong>. Consider a higher price.</div>`
+      : `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✅ ${esc(name)} would keep <strong>${fmt(keep)}</strong> (${pct(share)}) per sale. Your shop overall keeps <strong>${pct(avg)}</strong>${share >= avg ? ", so this would be one of your better products." : ", so it's a bit below your average."}</div>`;
+  $("planMsg").innerHTML = verdict + shipLine;
 }
 
 /* ---------- month picker ---------- */
@@ -1242,6 +1306,7 @@ document.getElementById("wiProduct").addEventListener("change", resetSlider);
 ["planName", "planPrice", "planCost", "planQty"].forEach(id => document.getElementById(id).addEventListener("input", updatePlan));
 document.getElementById("wiSlider").addEventListener("input", updateWhatIf);
 document.getElementById("horizon").addEventListener("change", e => { state.horizon = +e.target.value; render(); });
+document.getElementById("fcBase").addEventListener("change", e => { state.fcBase = e.target.value; render(); });
 document.getElementById("autoSeason").addEventListener("change", e => { state.autoSeason = e.target.checked; render(); });
 document.getElementById("boost").addEventListener("input", e => { state.boost = Math.max(0, parseFloat(e.target.value) || 0); render(); });
 
