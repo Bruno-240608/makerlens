@@ -142,6 +142,7 @@ table.glance .muted{color:var(--muted)}
 a.btnlike{text-decoration:none;display:inline-block;border-radius:10px;padding:10px 18px;font-weight:600;background:var(--accent);color:#fff}
 a.btnlike:hover{opacity:.9}
 @media (prefers-color-scheme: dark){a.btnlike{color:#0f1f19}}
+.offline{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent);border-radius:10px;padding:10px 14px;margin:0 0 14px;font-size:15px}
 .badge.lose{background:var(--bad);color:#fff}
 .badge.ok{background:var(--accent-soft);color:var(--accent)}
 .badge.mid{background:var(--warn-soft);color:var(--warn)}
@@ -199,6 +200,7 @@ input[type=range]{accent-color:var(--accent)}
         <div class="preview-row bad"><span>Mini Candle Trio <span class="badge lose">losing money</span></span><span>−$3.67</span></div>
         <p class="preview-cap">Example shop. See in seconds which products make money, and which don't.</p>
       </div>
+      <div id="offlineLanding"></div>
       <div class="privacy">🔒 100% free. No sign-up. Your data never leaves your browser.</div>
       <p class="note" style="margin:-12px 0 20px">Don't just trust us: once this page has loaded, turn off your Wi-Fi and upload your files. It still works, because nothing is ever sent anywhere.</p>
       <details class="privacy-more" id="privacyDetails">
@@ -211,6 +213,7 @@ input[type=range]{accent-color:var(--accent)}
           <li><strong>Feedback form:</strong> optional, it's a Google Form and doesn't collect your email.</li>
           <li><strong>Check it yourself:</strong> the full code is public <a href="https://github.com/Bruno-240608/makerlens" target="_blank" rel="noopener">on GitHub</a>.</li>
         </ul>
+        <div id="savedView"></div>
         <button id="clearData">Clear my saved data</button> <span id="clearMsg" class="note"></span>
       </details>
       <div class="btns">
@@ -249,6 +252,7 @@ input[type=range]{accent-color:var(--accent)}
   <!-- ============ APP ============ -->
   <section id="app" class="hidden">
     <div class="toprow">
+      <div id="offlineBadge"></div>
       <h2 id="shopTitle">Your shop</h2>
       <button id="startOver">Start over</button>
     </div>
@@ -678,6 +682,42 @@ function labelCells(table){
   table.querySelectorAll("tr").forEach((tr, i) => { if (i) [...tr.cells].forEach((td, j) => td.dataset.label = heads[j] || ""); });
 }
 
+// Privacy you can see: if the seller turned off their internet and it still worked, say so
+function showOffline(){
+  const el = document.getElementById("offlineBadge");
+  if (!el) return;
+  el.innerHTML = (!navigator.onLine || state.analyzedOffline) && !state.isSample
+    ? `<div class="offline">📴 <strong>${navigator.onLine ? "This was calculated while you were offline." : "You're offline, and it still worked."}</strong> Everything on this page was calculated on your own computer. Nothing was sent anywhere.</div>` : "";
+  const land = document.getElementById("offlineLanding");
+  if (land) land.innerHTML = !navigator.onLine
+    ? `<div class="offline">📴 <strong>You're offline.</strong> Go ahead and upload your files: MakerLens works without internet, because nothing is ever sent anywhere.</div>` : "";
+}
+window.addEventListener("offline", showOffline);
+window.addEventListener("online", showOffline);
+
+// Privacy you can see: list exactly what this site has saved in the browser
+function showSaved(){
+  const el = document.getElementById("savedView");
+  if (!el) return;
+  const NAMES = { "makerlens-costs":"Your product costs", "makerlens-currency":"Your currency choice", "skipgc":"Visit counter switched off for this browser" };
+  let items = [];
+  try{
+    for (let i = 0; i < localStorage.length; i++){
+      const k = localStorage.key(i);
+      if (!(k in NAMES)) continue; // other sites on this address are not MakerLens
+      let v = localStorage.getItem(k);
+      if (k === "makerlens-costs"){
+        const c = JSON.parse(v || "{}");
+        v = Object.keys(c).length ? Object.entries(c).map(([n, x]) => `${esc(n)}: ${fmt(+x)}`).join(", ") : "none";
+      } else if (k === "makerlens-currency") v = esc(JSON.parse(v));
+      else v = "yes";
+      items.push(`<li><strong>${NAMES[k]}:</strong> ${v}</li>`);
+    }
+  }catch(e){}
+  el.innerHTML = `<p style="margin:10px 0 4px"><strong>Saved in this browser right now:</strong></p>` +
+    (items.length ? `<ul style="margin:0 0 8px">${items.join("")}</ul>` : `<p class="note" style="margin:0 0 8px">Nothing. MakerLens hasn't saved anything in this browser.</p>`);
+}
+
 /* ---------- forecast ---------- */
 function forecast(a){
   const { months, keys } = a;
@@ -768,6 +808,8 @@ function render(){
 
   const cn = state.currencyNote;
   $("currencyNote").innerHTML = cn && !state.isSample ? `<p class="note">ℹ️ Your Etsy statement is in <strong>${esc(cn.stmtCur)}</strong> but your orders are in <strong>${esc(cn.itemCur)}</strong>. Everything is shown in ${esc(cn.stmtCur)}: each order is converted at the rate Etsy actually used for it (${cn.matched} of ${cn.orders} orders matched; the rest use your average rate).</p>` : "";
+  if (!navigator.onLine && !state.isSample) state.analyzedOffline = true; // keep the proof even after reconnecting
+  showOffline();
   $("shopTitle").textContent = state.isSample ? "Sample shop: Willow & Wick Candles" : "Your shop";
   $("periodText").textContent = `${MONTHS_LONG[+a.keys[0].slice(5)-1]} ${a.keys[0].slice(0,4)} to ${MONTHS_LONG[+a.keys.at(-1).slice(5)-1]} ${a.keys.at(-1).slice(0,4)} · ${a.keys.length} month${a.keys.length>1?"s":""} of data`;
 
@@ -851,7 +893,7 @@ function render(){
       inp.addEventListener("change", e => {
         const v = parseFloat(e.target.value);
         if (isNaN(v)) delete state.costs[e.target.dataset.product]; else state.costs[e.target.dataset.product] = v;
-        if (!state.isSample) safeSet("makerlens-costs", state.costs);
+        if (!state.isSample){ safeSet("makerlens-costs", state.costs); showSaved(); }
         render();
       });
     });
@@ -1185,6 +1227,7 @@ function startAnalysis(){
   state.itemRows = state.files.filter(f => f.kind === "items").flatMap(f => f.rows);
   state.isSample = false;
   state.costs = safeGet("makerlens-costs", {});
+  state.analyzedOffline = false;
   // show money in the currency of the seller's statement
   const CUR = { USD:"$", GBP:"£", EUR:"€", CAD:"CA$", AUD:"A$", VND:"₫", INR:"₹" };
   const code = ((state.statementRows.find(r => col(r, "Currency")) || {})["Currency"] || "").toUpperCase();
@@ -1273,10 +1316,13 @@ function showTab(id){
 document.querySelectorAll("#secTools .tab").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
 document.getElementById("wiGuess").addEventListener("input", () => { document.getElementById("wiGuessBox").dataset.touched = "1"; updateWhatIf(); });
 document.getElementById("wiGuessDir").addEventListener("change", () => { document.getElementById("wiGuessBox").dataset.touched = "1"; updateWhatIf(); });
+document.getElementById("privacyDetails").addEventListener("toggle", showSaved);
+showSaved(); showOffline();
 document.getElementById("clearData").addEventListener("click", () => {
   try{ localStorage.removeItem("makerlens-costs"); localStorage.removeItem("makerlens-currency"); }catch(e){}
   state.costs = {};
   document.getElementById("clearMsg").textContent = "Done. Nothing from MakerLens is saved in this browser now.";
+  showSaved();
   if (!document.getElementById("app").classList.contains("hidden") && !state.isSample) render();
 });
 document.getElementById("footPrivacy").addEventListener("click", () => {
@@ -1311,7 +1357,7 @@ document.getElementById("startOver").addEventListener("click", () => {
   document.getElementById("landing").classList.remove("hidden");
 });
 document.getElementById("currency").addEventListener("change", e => {
-  state.currency = e.target.value; safeSet("makerlens-currency", state.currency);
+  state.currency = e.target.value; safeSet("makerlens-currency", state.currency); showSaved();
   if (!document.getElementById("app").classList.contains("hidden")) render();
 });
 document.getElementById("wiProduct").addEventListener("change", resetSlider);
