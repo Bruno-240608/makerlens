@@ -138,6 +138,10 @@ table.glance .muted{color:var(--muted)}
 .thin{color:#b07800}
 .pos{color:var(--accent)}
 @media (prefers-color-scheme: dark){.thin{color:#e0b040}}
+.card.feedback{border:2px solid var(--accent-soft)}
+a.btnlike{text-decoration:none;display:inline-block;border-radius:10px;padding:10px 18px;font-weight:600;background:var(--accent);color:#fff}
+a.btnlike:hover{opacity:.9}
+@media (prefers-color-scheme: dark){a.btnlike{color:#0f1f19}}
 .badge.lose{background:var(--bad);color:#fff}
 .badge.ok{background:var(--accent-soft);color:var(--accent)}
 .badge.mid{background:var(--warn-soft);color:var(--warn)}
@@ -204,6 +208,7 @@ input[type=range]{accent-color:var(--accent)}
           <li><strong>What's saved:</strong> only the product costs you type in and your currency, kept in your own browser so you don't have to retype them. You can delete them any time.</li>
           <li><strong>What's never collected:</strong> your files, sales, customer names or anything else from Etsy. There's no account, no database and no AI involved.</li>
           <li><strong>Visit counter:</strong> I count page visits with GoatCounter, which uses no cookies and doesn't track you. It only knows a page was opened, never anything about your files.</li>
+          <li><strong>Feedback form:</strong> optional, it's a Google Form and doesn't collect your email.</li>
           <li><strong>Check it yourself:</strong> the full code is public <a href="https://github.com/Bruno-240608/makerlens" target="_blank" rel="noopener">on GitHub</a>.</li>
         </ul>
         <button id="clearData">Clear my saved data</button> <span id="clearMsg" class="note"></span>
@@ -364,13 +369,20 @@ input[type=range]{accent-color:var(--accent)}
         <div id="method" style="font-size:14px"></div>
       </details>
     </div>
+
+    <div class="card feedback">
+      <h2>How was it?</h2>
+      <p>Got any complaints, ideas or improvements? They're really welcome and help me make MakerLens better. It takes about 1 minute.</p>
+      <div class="btns"><a class="primary btnlike" href="https://docs.google.com/forms/d/e/1FAIpQLSfAa_-oz8bV-K95X0au4bW_J4K_ngF9ii2nhJOH9NE2txVq2Q/viewform" target="_blank" rel="noopener">Give feedback</a></div>
+      <p class="note">Opens a Google Form. It doesn't ask for your email or anything from your files.</p>
+    </div>
   </section>
 </main>
 
 <footer>
   MakerLens is a free student project, built by Bruno, a Computer Science &amp; Business student at Northeastern University.<br>
   Not affiliated with Etsy. Figures are for guidance only, not financial or tax advice.<br>
-  <a href="#privacyDetails" id="footPrivacy">Privacy</a> · <a href="https://github.com/Bruno-240608/makerlens" target="_blank" rel="noopener">Source code</a>
+  <a href="#privacyDetails" id="footPrivacy">Privacy</a> · <a href="https://docs.google.com/forms/d/e/1FAIpQLSfAa_-oz8bV-K95X0au4bW_J4K_ngF9ii2nhJOH9NE2txVq2Q/viewform" target="_blank" rel="noopener">Feedback</a> · <a href="https://github.com/Bruno-240608/makerlens" target="_blank" rel="noopener">Source code</a>
   <div id="footPrivacySlot" style="text-align:left;max-width:640px;margin:12px auto 0"></div>
 </footer>
 
