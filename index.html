@@ -97,7 +97,7 @@ tr.loss td{background:var(--bad-soft)}
 .steps li{margin:4px 0}
 .steps li.done{color:var(--accent)}
 .steps em{color:var(--muted);font-style:normal}
-.privacy-more{margin:-8px 0 22px;font-size:14px;max-width:640px}
+.privacy-more{margin:0 0 22px;font-size:14px;max-width:640px}
 .privacy-more summary{cursor:pointer;color:var(--accent);font-weight:600}
 .privacy-more ul{padding-left:20px;margin:10px 0}
 .privacy-more li{margin:6px 0}
@@ -143,6 +143,11 @@ a.btnlike{text-decoration:none;display:inline-block;border-radius:10px;padding:1
 a.btnlike:hover{opacity:.9}
 @media (prefers-color-scheme: dark){a.btnlike{color:#0f1f19}}
 .offline{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent);border-radius:10px;padding:10px 14px;margin:0 0 14px;font-size:15px}
+.trust{border:1px solid var(--accent);background:var(--accent-soft);border-radius:14px;padding:14px 16px;margin:0 0 20px;max-width:640px}
+.trust-head{font-weight:700;font-size:17px;color:var(--accent);margin-bottom:4px}
+.trust p{margin:4px 0;font-size:15px}
+.netchip{display:inline-block;margin-top:8px;font-size:13px;padding:3px 10px;border-radius:999px;background:var(--card);border:1px solid var(--line);color:var(--muted)}
+.netchip.off{color:var(--accent);border-color:var(--accent);font-weight:600}
 .badge.lose{background:var(--bad);color:#fff}
 .badge.ok{background:var(--accent-soft);color:var(--accent)}
 .badge.mid{background:var(--warn-soft);color:var(--warn)}
@@ -192,6 +197,12 @@ input[type=range]{accent-color:var(--accent)}
     <div class="hero">
       <h1>See what you really keep from every Etsy sale.</h1>
       <p class="lead">Etsy shows you what you sold. MakerLens shows what's left after Etsy's fees, which products are worth it, and what the next months could bring.<br><strong>No spreadsheets:</strong> upload the files Etsy already gives you, then add what each item costs you.</p>
+      <div class="trust">
+        <div class="trust-head">🔒 Your files never leave your computer</div>
+        <p>MakerLens does all the maths in your own browser. No upload, no account, no AI. 100% free.</p>
+        <p class="trust-test"><strong>Don't just trust us, test it:</strong> turn off your Wi-Fi, then upload your files. It still works, because nothing is ever sent anywhere.</p>
+        <div id="netChip" class="netchip"></div>
+      </div>
       <div class="preview" id="previewCard" title="Try it with sample data">
         <div class="preview-head"><span>Product</span><span>You keep per sale</span></div>
         <div class="preview-row"><span>Holiday Gift Box</span><span>$18.11</span></div>
@@ -200,9 +211,6 @@ input[type=range]{accent-color:var(--accent)}
         <div class="preview-row bad"><span>Mini Candle Trio <span class="badge lose">losing money</span></span><span>−$3.67</span></div>
         <p class="preview-cap">Example shop. See in seconds which products make money, and which don't.</p>
       </div>
-      <div id="offlineLanding"></div>
-      <div class="privacy">🔒 100% free. No sign-up. Your data never leaves your browser.</div>
-      <p class="note" style="margin:-12px 0 20px">Don't just trust us: once this page has loaded, turn off your Wi-Fi and upload your files. It still works, because nothing is ever sent anywhere.</p>
       <details class="privacy-more" id="privacyDetails">
         <summary>Privacy, in plain words</summary>
         <ul>
@@ -225,6 +233,7 @@ input[type=range]{accent-color:var(--accent)}
     <div class="card hidden" id="uploadCard">
       <h2>Upload your files</h2>
       <p class="sub">Add the files Etsy lets you download (they end in .csv). We work out which file is which automatically.</p>
+      <p class="note" style="margin-top:-6px">🔒 Your files stay on this computer. Want proof? Turn off your Wi-Fi first. <span id="netChip2"></span></p>
       <div class="drop" id="drop">
         <p><strong>Drag & drop your Etsy files</strong> or <label style="color:var(--accent);cursor:pointer;text-decoration:underline">browse<input type="file" id="fileInput" accept=".csv,text/csv" multiple hidden></label></p>
         <ol class="steps" id="uploadSteps">
@@ -688,9 +697,10 @@ function showOffline(){
   if (!el) return;
   el.innerHTML = (!navigator.onLine || state.analyzedOffline) && !state.isSample
     ? `<div class="offline">📴 <strong>${navigator.onLine ? "This was calculated while you were offline." : "You're offline, and it still worked."}</strong> Everything on this page was calculated on your own computer. Nothing was sent anywhere.</div>` : "";
-  const land = document.getElementById("offlineLanding");
-  if (land) land.innerHTML = !navigator.onLine
-    ? `<div class="offline">📴 <strong>You're offline.</strong> Go ahead and upload your files: MakerLens works without internet, because nothing is ever sent anywhere.</div>` : "";
+  const chip = document.getElementById("netChip"), chip2 = document.getElementById("netChip2");
+  const txt = navigator.onLine ? "🟢 Right now you're online." : "📴 You're offline now. Go ahead and upload: it still works.";
+  if (chip){ chip.textContent = txt; chip.classList.toggle("off", !navigator.onLine); }
+  if (chip2) chip2.textContent = navigator.onLine ? "" : "📴 You're offline now, go ahead.";
 }
 window.addEventListener("offline", showOffline);
 window.addEventListener("online", showOffline);
