@@ -1,37 +1,48 @@
 # MakerLens
 
-**See your real Etsy profit after every fee, plus a transparent cash-flow forecast.**
+**See what you really keep from every Etsy sale.**
 
-Etsy shows sellers their sales, but not what they actually keep. MakerLens reads the CSV files Etsy lets sellers download and shows:
+🔗 **Live:** https://bruno-240608.github.io/makerlens/
 
-- **Real profit** after transaction, processing, listing, ad and shipping-label fees, refunds and material costs
-- **Profit per product**, with products that lose money flagged
-- **Profit by month**
-- **A 3/6/12-month cash-flow forecast** with seasonal detection, a best/worst-case range, and a plain-English explanation of how every number is calculated
+Etsy shows sellers what they sold, but not what's left after all the fees. MakerLens reads the CSV files Etsy already lets sellers download and shows:
 
-🔒 **Privacy first:** everything runs in the browser. No server, no sign-up, and seller data never leaves their computer.
+- **Real profit** after Etsy's fees (transaction, payment processing, listing, ads, shipping labels, tax on fees), refunds and the seller's own material costs
+- **Profit per product**, with a summary line naming the products that lose money
+- **Price tools:** a price slider that shows how much room a new price gives you (it never guesses how customers will react; the seller can enter their own guess), and a planner for new products
+- **A 3/6/12-month forecast** with a likely range, busy-season detection, an option to base it on recent months or the same months last year, and a plain-words income statement ("your next months at a glance")
 
-## Try it
-Open `index.html` and click **Try with sample data** (a fictional 12-month candle shop).
+## Privacy you can check
+
+Everything runs in the seller's own browser. There's no server, no account, no database and no AI. The Etsy files never leave the seller's computer.
+
+I didn't want this to be just a claim, so the site lets people verify it:
+- **The Wi-Fi test:** turn off your internet and upload your files. It still works, and the page confirms "You're offline, and it still worked."
+- **What's saved:** the privacy section lists exactly what's stored in the browser (only product costs and currency choice) and lets you clear it.
+- **The code is public:** this repo.
+
+The only things that touch the internet are a cookie-free visit counter (GoatCounter) and an optional feedback form.
 
 ## How it works
+
 | Step | What happens |
 |---|---|
-| 1. Parse | A small CSV parser reads Etsy's monthly statements (Date, Type, Title, Info, Currency, Amount, Fees & Taxes, Net) and the optional Order Items export. File types are detected automatically. |
-| 2. Classify | Each statement row is grouped by type: sales, refunds, and fee categories. Bank deposits are excluded because they're transfers, not profit. |
-| 3. Profit | Real profit = Etsy payout (sales + fees + refunds) − material costs entered by the seller. |
-| 4. Per product | Fees and refunds are allocated to products by share of sales, since Etsy doesn't itemise every fee. |
-| 5. Forecast | Base = average of the last 6 months with seasonality removed. Seasonal factor per month = that month's sales ÷ average (needs 12 months), or seller-selected busy months. Range = ±10% + 2.5% per month ahead. |
+| 1. Read | A hand-written CSV parser reads Etsy's monthly statements and Order Items exports (quotes, commas inside fields, BOM, `--` values). It works out which file is which and explains wrong or incomplete files in plain words. |
+| 2. Sort | Each statement row is sorted into sales, fees (by Type and Title), refunds and tax. Bank deposits and card payments to Etsy are left out because they move money, they aren't profit. Sales tax paid by the buyer comes off sales instead of counting as a fee. |
+| 3. Per product | Order Items lines are grouped by order. Order-level discounts are spread over the items. Each fee is matched to its order number and split by item value; shop-wide costs (like Etsy Ads) are shared by sales. Costs for orders that aren't in the Order Items file are kept out of the table and explained. If the statement and orders use different currencies, each order is converted at the rate Etsy actually used. |
+| 4. Honesty checks | Until material costs are entered, profit is labelled "before your costs" and no product gets a green tick. Estimates say they're estimates, with "How is this worked out?" explanations. |
+| 5. Forecast | Base = recent average with seasonality removed; seasonal factors from 12+ months of data or months the seller picks; range widens the further ahead it goes. |
+
+## Testing
+
+- Tested on **real Etsy exports** from two shops found in public repositories (10 months of statements from a small shop, and a month of statements + Order Items from a larger shop in two currencies). This found and fixed 7 bugs, including discounts being ignored and mixed currencies. Total profit matches an independent calculation to the cent.
+- **User testing** with a fresh-eyes tester acting as a non-technical seller, which led to the trust fixes above, plainer wording and a phone layout.
 
 ## Tech
-Plain HTML, CSS and JavaScript in a single file. No libraries, no build step. Charts are hand-made SVG. Hosted on GitHub Pages.
 
-## Roadmap
-- Guided step-by-step download instructions with screenshots
-- Support for more export formats and currencies in one file
-- Exportable report (PDF)
-- Feedback-driven features from real sellers
+Plain HTML, CSS and JavaScript in one file. No libraries, no build step, hand-made SVG charts. Hosted on GitHub Pages. Tested with Playwright.
 
 ## About
-Built by Bruno, a Computer Science & Business Administration student at Northeastern University (London Scholars).
+
+Built by Bruno, a Computer Science & Business Administration student at Northeastern University (London). I decided what to build and how it should behave, tested it with users and real data, and built it with AI-assisted development (Claude).
+
 Not affiliated with Etsy. Figures are for guidance only, not financial or tax advice.
