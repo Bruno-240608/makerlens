@@ -148,6 +148,9 @@ a.btnlike:hover{opacity:.9}
 .trust p{margin:4px 0;font-size:15px}
 .netchip{display:inline-block;margin-top:8px;font-size:13px;padding:3px 10px;border-radius:999px;background:var(--card);border:1px solid var(--line);color:var(--muted)}
 .netchip.off{color:var(--accent);border-color:var(--accent);font-weight:600}
+.stat.pending{border:2px dashed var(--line);background:transparent}
+.stat.pending .value{color:var(--muted)}
+.tilenote{font-size:12px;color:var(--muted);margin-top:2px;font-weight:400}
 .badge.lose{background:var(--bad);color:#fff}
 .badge.ok{background:var(--accent-soft);color:var(--accent)}
 .badge.mid{background:var(--warn-soft);color:var(--warn)}
@@ -280,7 +283,7 @@ input[type=range]{accent-color:var(--accent)}
     </div>
     <div class="card">
       <h2>Profit by month</h2>
-      <p class="sub">What you kept each month after Etsy fees and your material costs.</p>
+      <p class="sub" id="monthSub">What you kept each month after Etsy fees and your material costs.</p>
       <div class="chart" id="monthChart"></div>
     </div>
     <div class="card">
@@ -418,7 +421,8 @@ const state = {
   horizon: 6,
   fcBase: "recent",        // forecast from recent months, or from the same months last year
   autoSeason: true,
-  busyMonths: new Set([10, 11]), // Nov, Dec (0-based)
+  busyMonths: new Set([10, 11]), // Nov, Dec (0-based): Etsy's usual busy season, until the seller changes it
+  busyCustom: false,               // has the seller picked their own busy months?
   boost: 30,
   isSample: false,
 };
@@ -564,6 +568,10 @@ function analyze(){
       costLines.push({ order:orderId(r), title:"", amount:net, kind:"pct" });
     } else if (/(sales tax|vat) paid by buyer/i.test(col(r, "Title") || "")){
       gross += net; m.sales += net; // tax the buyer paid on top of your price: not your money, not your fee
+      const so = orderId(r); if (so) saleByOrder[so] = (saleByOrder[so] || 0) + net; // so the order's exchange rate isn't skewed by tax
+    } else if (/refund/i.test(col(r, "Title") || "") && (type === "tax" || /tax/i.test(col(r, "Title") || ""))){
+      refunds += net; m.refunds += net; // e.g. "Refund to buyer for sales tax": a refund, not an Etsy fee
+      costLines.push({ order:orderId(r), title:"", amount:net, kind:"pct" });
     } else {
       const b = feeBucket(type, col(r, "Title") || "");
       fees[b] = (fees[b] || 0) + net; m.fees += net;
@@ -573,6 +581,10 @@ function analyze(){
     m.net += net;
   }
   const totalFees = sum(Object.values(fees)); // negative number
+  // a quiet month (no rows) is still a month: fill gaps so "last 6 months" really means 6 months
+  const stmtKeys = Object.keys(months).sort();
+  if (stmtKeys.length) for (let k = stmtKeys[0]; k < stmtKeys.at(-1); k = nextKey(k, 1)) ensure(k);
+  const statementMonths = new Set(Object.keys(months));
 
   // 2) Order Items: which products sold, and material costs
   const products = {};
@@ -581,6 +593,7 @@ function analyze(){
   // First group the lines by order. In Etsy's Order Items file, "Item Total" is BEFORE discounts,
   // and the discount (and shipping, and sales tax) for the whole order sits on the order's first line only.
   const lines = [], byOrder = {};
+  let dropped = 0;
   for (const r of state.itemRows){
     const qty = parseFloat(col(r, "Quantity")) || 1;
     let total = money(col(r, "Item Total"));
@@ -588,13 +601,17 @@ function analyze(){
     const line = {
       name: col(r, "Item Name", "Title") || "Unnamed item", qty, total,
       discount: Math.abs(money(col(r, "Discount Amount"))),
-      extras: money(col(r, "Order Shipping")) + money(col(r, "Order Sales Tax")) - Math.abs(money(col(r, "Shipping Discount"))),
+      shipping: money(col(r, "Order Shipping")) - Math.abs(money(col(r, "Shipping Discount"))), // what the buyer paid for shipping (order-level, first line)
       oid: String(col(r, "Order ID") || "").replace(/\D/g, ""),
       date: parseDate(col(r, "Sale Date", "Date Paid", "Date")),
     };
+    // 1: only count items from months your statements cover (an Order Items download is often a whole year)
+    const inStatements = (line.oid && saleByOrder[line.oid]) || (line.date && statementMonths.has(monthKey(line.date)));
+    if (!inStatements){ dropped++; continue; }
     lines.push(line);
     (byOrder[line.oid || ("line" + lines.length)] ??= []).push(line);
   }
+  state.itemsDropped = dropped;
 
   // Your statement and your orders can be in different currencies (e.g. orders in USD, payouts in VND).
   // Etsy's statement shows what each order became in your currency, so we use that order's own exchange rate.
@@ -603,11 +620,13 @@ function analyze(){
   const convert = itemCur && stmtCur && itemCur.toUpperCase() !== stmtCur.toUpperCase();
   const fx = {}; let fxSale = 0, fxPaid = 0;
   for (const [oid, ls] of Object.entries(byOrder)){
-    const discount = sum(ls.map(l => l.discount));
-    const paid = sum(ls.map(l => l.total)) - discount + sum(ls.map(l => l.extras));
+    const discount = sum(ls.map(l => l.discount)), shipping = sum(ls.map(l => l.shipping));
+    const paid = sum(ls.map(l => l.total)) - discount + shipping; // what the buyer paid, without sales tax
     for (const l of ls){
       const share = sum(ls.map(x => x.total)) ? l.total / sum(ls.map(x => x.total)) : 1 / ls.length;
-      l.revenue = l.total - discount * share; // price after this item's share of the order discount
+      // this item's price, minus its share of the order discount, plus its share of the shipping the buyer paid
+      // (shipping labels are charged to products, so the shipping income must be too)
+      l.revenue = l.total - discount * share + shipping * share;
     }
     if (convert && saleByOrder[oid] && paid > 0){ fx[oid] = saleByOrder[oid] / paid; fxSale += saleByOrder[oid]; fxPaid += paid; }
   }
@@ -619,7 +638,10 @@ function analyze(){
     const p = (products[l.name] ??= { name:l.name, units:0, revenue:0 });
     p.units += l.qty; p.revenue += revenue;
     if (l.oid) (orders[l.oid] ??= []).push({ name:l.name, revenue });
-    if (l.date) ensure(monthKey(l.date)).materials += (state.costs[l.name] || 0) * l.qty;
+    // materials go in the month of the sale, but never create a month the statements don't have
+    const mk = l.date && monthKey(l.date);
+    const target = mk && months[mk] ? mk : stmtKeys.at(-1);
+    if (target) months[target].materials += (state.costs[l.name] || 0) * l.qty;
   }
   const hasItems = Object.keys(products).length > 0;
 
@@ -660,7 +682,7 @@ function analyze(){
     p.profitPerUnit = p.units ? p.profit / p.units : 0;
     p.margin = p.revenue ? p.profit / p.revenue : 0;
   }
-  productList.sort((a, b) => b.profit - a.profit);
+  productList.sort((a, b) => b.revenue - a.revenue); // by sales: stays put while costs are being typed
 
   const keys = Object.keys(months).sort();
   for (const k of keys) months[k].profit = months[k].net - months[k].materials;
@@ -675,11 +697,17 @@ function analyze(){
   const saleCount = state.statementRows.filter(r => (col(r, "Type") || "").toLowerCase() === "sale").length;
   const unitsSold = hasItems ? sum(productList.map(p => p.units)) : saleCount;
   const salesBase = hasItems ? itemRevenue : gross;
-  const shopRates = {
+  const shopRates = hasItems ? {
+    // per-product numbers already have each order's fees, and shop-wide costs (like Etsy Ads) as fixed
+    pctRate: itemRevenue ? -sum(productList.map(p => p.pctFees)) / itemRevenue : 0,
+    fixedPerItem: unitsSold ? -sum(productList.map(p => p.fixedFees)) / unitsSold : 0,
+  } : {
     pctRate: salesBase ? -pctTotal / salesBase : 0,        // share of each price lost to %-based fees
     fixedPerItem: unitsSold ? -fixedTotal / unitsSold : 0, // fixed fees per item sold
-    keepShare: gross ? profit / gross : 0,                 // shop's average "% you keep"
   };
+  Object.assign(shopRates, {
+    keepShare: gross ? profit / gross : 0,                 // shop's average "% you keep"
+  });
 
   return { months, keys, fees, totalFees, gross, refunds, payout, materials, profit, productList, hasItems, feeSplit, shopRates };
 }
@@ -744,7 +772,8 @@ function forecast(a){
       method = "auto";
     }
   }
-  if (method === "flat" && state.busyMonths.size){
+  // with 12+ months, unticking "detect busy season" really means "no seasons", unless the seller picked months themselves
+  if (method === "flat" && state.busyMonths.size && (keys.length < 12 || state.busyCustom)){
     // spread the boost so the year still averages out sensibly
     for (const m of state.busyMonths) factor[m] = 1 + state.boost / 100;
     method = "manual";
@@ -752,7 +781,7 @@ function forecast(a){
 
   // Base = average of the last (up to) 6 months, with the seasonal effect removed
   const recent = keys.slice(-6);
-  const base = avg(recent.map(k => months[k].profit / factor[+k.slice(5) - 1]));
+  const base = avg(recent.map(k => months[k].sales > 0 ? months[k].profit / factor[+k.slice(5) - 1] : months[k].profit));
 
   const rows = [];
   const last = keys[keys.length - 1];
@@ -834,9 +863,19 @@ function render(){
     ["Etsy fees", fmt(a.totalFees)],
     ["Refunds", fmt(a.refunds)],
     ["Your material costs", noCosts ? `<span class="muted">not added yet</span>` : fmt(-a.materials)],
-    [noCosts ? "Profit before your costs" : someMissing ? "Real profit (some costs missing)" : "Real profit", fmt(a.profit), true],
-    [noCosts ? "% you keep before your costs" : "% of each sale you keep", pct(margin), true],
-  ].map(([l, v, hl]) => `<div class="stat${hl?" highlight":""}"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+    [noCosts ? "Not your profit yet: left after Etsy, before your costs" : someMissing ? "Real profit (some costs missing)" : "Real profit", fmt(a.profit), noCosts ? "pending" : true],
+    [noCosts ? "% left after Etsy (before your costs)" : "% of each sale you keep", pct(margin), noCosts ? "pending" : true],
+  ].map(([l, v, hl]) => `<div class="stat${hl === "pending" ? " pending" : hl ? " highlight" : ""}"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+
+  // #5: shipping labels are postage, not Etsy's cut; say so wherever fees are totalled
+  const postage = -(a.fees["Shipping labels"] || 0);
+  const postageNote = postage > 0.005 ? ` <span class="muted">(includes ${fmt(postage)} postage for shipping labels)</span>` : "";
+  const feeTile = $("stats").querySelectorAll(".stat")[1];
+  if (feeTile && postageNote) feeTile.insertAdjacentHTML("beforeend", `<div class="tilenote">incl. ${fmt(postage)} postage (shipping labels)</div>`);
+  // #4: the monthly chart says what it really shows
+  $("monthSub").textContent = state.costsIncomplete
+    ? (noCosts ? "What was left each month after Etsy fees and refunds. Your material costs aren't included yet." : "What you kept each month after Etsy fees and your material costs. Some products have no cost yet, so this is higher than reality.")
+    : "What you kept each month after Etsy fees and your material costs.";
 
   // materials note / fallback input
   if (!a.hasItems){
@@ -862,7 +901,7 @@ function render(){
     <div class="feebar"><div class="name">${esc(k)}</div>
     <div class="track"><div class="fill" style="width:${Math.abs(v)/maxFee*100}%"></div></div>
     <div class="amt">${fmt(v)}</div></div>`).join("") +
-    `<p class="note">Fees took <strong>${pct(a.gross ? -a.totalFees / a.gross : 0)}</strong> of your sales.</p>`;
+    `<p class="note">Fees took <strong>${pct(a.gross ? -a.totalFees / a.gross : 0)}</strong> of your sales${(a.fees["Shipping labels"] || 0) < -0.005 ? `, including <strong>${fmt(-a.fees["Shipping labels"])}</strong> of postage for shipping labels (postage you bought through Etsy; the shipping your buyers paid is counted in your sales)` : ""}.</p>`;
 
   // product table (only rebuild rows, keep focus on inputs)
   if (a.hasItems){
@@ -881,31 +920,41 @@ function render(){
     } else if (a.productList.length && missingCosts){
       $("productSummary").innerHTML = `<div class="warn">✏️ <strong>Type what each item costs you</strong> (the highlighted boxes) to see which products really make money. Until then, profits here don't include your materials.</div>`;
     } else if (a.productList.length){
-      const top = a.productList[0];
+      const top = a.productList.reduce((b, p) => p.profit > b.profit ? p : b);
       $("productSummary").innerHTML = `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✅ None of your products lose money. Top earner: <strong>${esc(top.name)}</strong> (${fmt(top.profit)}).</div>`;
     } else $("productSummary").innerHTML = "";
     const table = $("productTable");
     const active = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.product : null;
     const profitable = a.productList.filter(p => p.profit > 0);
     // no "top earner" / "best margin" badges until costs are in: they could be wrong
-    const topEarner = profitable.length && !missingCosts ? profitable[0].name : null; // list is sorted by profit
+    const topEarner = profitable.length && !missingCosts ? profitable.reduce((b, p) => p.profit > b.profit ? p : b).name : null;
     const bestMargin = profitable.length > 1 && !missingCosts ? profitable.reduce((b, p) => p.margin > b.margin ? p : b).name : null;
     const tags = p => (p.name === topEarner ? ' <span class="badge ok" title="Made the most profit in total">⭐ Top earner</span>' : "") +
                       (p.name === bestMargin ? ' <span class="badge ok" title="Keeps the biggest share of each sale">💎 Best margin</span>' : "");
-    table.innerHTML = `<tr><th>Product</th><th>Units</th><th>Sales</th><th>Etsy fees &amp; refunds (est.)</th><th>Cost per item</th><th>Profit</th><th>Per item</th><th>% you keep</th></tr>` +
+    const hasCost = p => state.costs[p.name] !== undefined;
+    // until a product's cost is typed, its numbers are "left after Etsy", not profit (shown grey, never green)
+    const pc = (p, txt) => hasCost(p) ? `<td class="${p.profit<0?"neg":""}">${txt}</td>` : `<td class="muted" title="Before your costs">${txt}<div class="tilenote">before costs</div></td>`;
+    table.innerHTML = `<tr><th>Product</th><th>Units</th><th>Sales (incl. shipping)</th><th>Etsy fees &amp; refunds (est.)</th><th>Cost per item</th><th>Profit</th><th>Per item</th><th>% you keep</th></tr>` +
       a.productList.map(p => `<tr class="${p.profit < 0 ? "loss" : ""}">
         <td>${p.name === topEarner ? `<strong>${esc(p.name)}</strong>` : esc(p.name)}${tags(p)}${p.profit < 0 ? ' <span class="neg">· losing money</span>' : ""}</td>
         <td>${p.units}</td><td>${fmt(p.revenue)}</td><td>${fmt(p.fees)}</td>
         <td><input class="cost-input${state.costs[p.name] ? "" : " need"}" type="number" min="0" step="0.01" data-product="${esc(p.name)}" value="${state.costs[p.name] ?? ""}" placeholder="cost" aria-label="Cost per item for ${esc(p.name)}"></td>
-        <td class="${p.profit<0?"neg":""}">${fmt(p.profit)}</td><td class="${p.profit<0?"neg":""}">${fmt(p.profitPerUnit)}</td><td>${pct(p.margin)}</td></tr>`).join("");
+        ${pc(p, fmt(p.profit))}${pc(p, fmt(p.profitPerUnit))}${pc(p, pct(p.margin))}</tr>`).join("");
     labelCells(table);
     table.querySelectorAll(".cost-input").forEach(inp => {
-      inp.addEventListener("change", e => {
-        const v = parseFloat(e.target.value);
-        if (isNaN(v)) delete state.costs[e.target.dataset.product]; else state.costs[e.target.dataset.product] = v;
+      // save when leaving the box (Tab, click elsewhere, Enter), then put the cursor where the seller was going
+      const save = (e, goingTo) => {
+        const name = e.target.dataset.product, v = parseFloat(e.target.value);
+        const before = state.costs[name];
+        if (isNaN(v)) delete state.costs[name]; else state.costs[name] = v;
+        if (state.costs[name] === before) return;
         if (!state.isSample){ safeSet("makerlens-costs", state.costs); showSaved(); }
+        const next = goingTo && goingTo.dataset ? goingTo.dataset.product : null;
         render();
-      });
+        if (next){ const el = $("productTable").querySelector(`[data-product="${CSS.escape(next)}"]`); if (el){ el.focus(); el.select(); } }
+      };
+      inp.addEventListener("focusout", e => save(e, e.relatedTarget));
+      inp.addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); e.target.blur(); } });
     });
     if (active){ const el = table.querySelector(`[data-product="${CSS.escape(active)}"]`); if (el) el.focus(); }
   }
@@ -977,15 +1026,23 @@ function renderForecast(a){
       return `<div class="stat"><div class="label">${label}</div><div class="value">${fmt(sum(rs.map(r => r.value)),{round:true})}</div></div>`;
     }).join("");
   // one plain sentence when the forecast looks surprising next to last year
+  // one plain message that puts both comparisons side by side, so they don't seem to contradict each other
+  const n = f.rows.length, next = sum(f.rows.map(r => r.value));
+  const pastKeys = a.keys.slice(-n), past = sum(pastKeys.map(k => a.months[k].profit));
+  const busyAhead = avg(f.rows.map(r => r.factor)) > avg(pastKeys.map(k => f.factor[+k.slice(5) - 1])) + 0.1;
+  const change = (x, y) => Math.abs(y) > 0.01 ? (x - y) / Math.abs(y) : null;
+  const parts = [];
+  const vsPast = change(next, past);
+  if (vsPast !== null && Math.abs(vsPast) >= 0.1)
+    parts.push(`Your next ${n} months look <strong>${Math.round(Math.abs(vsPast) * 100)}% ${vsPast > 0 ? "better" : "worse"} than your last ${n}</strong> (${fmt(past,{round:true})})${busyAhead && vsPast > 0 ? ", mostly because they include your busy season" : ""}.`);
   const vy = f.vsLastYear;
-  if (vy && Math.abs(vy.then) > 0.01){
-    const diff = (vy.now - vy.then) / Math.abs(vy.then);
-    $("fcExplain").innerHTML = f.basedOn === "lastyear"
-      ? `<p class="note">ℹ️ Based on what you made in the same months last year. If your shop has grown or slowed since then, try "my recent months".</p>`
-      : diff < -0.1 ? `<p class="note">ℹ️ This is <strong>lower than the same months last year</strong> (${fmt(vy.then,{round:true})}) because your recent months were slower than last year. If the slowdown was temporary, try basing it on "the same months last year".</p>`
-      : diff > 0.1 ? `<p class="note">ℹ️ This is <strong>higher than the same months last year</strong> (${fmt(vy.then,{round:true})}) because your recent months were stronger than last year.</p>`
-      : `<p class="note">ℹ️ About the same as the same months last year (${fmt(vy.then,{round:true})}).</p>`;
-  } else $("fcExplain").innerHTML = "";
+  if (vy && f.basedOn === "recent"){
+    const d = change(vy.now, vy.then);
+    if (d !== null && d < -0.1) parts.push(`${parts.length ? "But they're" : "This is"} <strong>${Math.round(-d * 100)}% below the same months last year</strong> (${fmt(vy.then,{round:true})}). Your recent months were slower than last year, which could mean something has changed: your prices, demand, or competition. If the slowdown was temporary, try basing it on "the same months last year".`);
+    else if (d !== null && d > 0.1) parts.push(`It's also <strong>${Math.round(d * 100)}% above the same months last year</strong> (${fmt(vy.then,{round:true})}): your recent months were stronger than last year.`);
+    else if (d !== null) parts.push(`That's about the same as the same months last year (${fmt(vy.then,{round:true})}).`);
+  } else if (f.basedOn === "lastyear") parts.push(`This is based on what you made in the same months last year. If your shop has grown or slowed since then, try "my recent months".`);
+  $("fcExplain").innerHTML = parts.length ? `<p class="note">ℹ️ ${parts.join(" ")}</p>` : "";
 
   const history = a.keys.slice(-6).map(k => ({ label:keyToLabel(k), value:a.months[k].profit, kind:"actual" }));
   const future = f.rows.map(r => ({ label:keyToLabel(r.key), value:r.value, low:r.low, high:r.high, kind:"forecast" }));
@@ -1003,12 +1060,13 @@ function renderForecast(a){
   const seasonText = f.method === "auto"
     ? `<li><strong>Busy seasons:</strong> detected automatically from your last 12 months. We compare each month's sales with your average month. For example, +100% means that month is usually twice as busy as average, and −30% means it's quieter.</li>`
     : f.method === "manual"
-      ? `<li><strong>Busy seasons:</strong> you marked ${[...state.busyMonths].sort((x,y)=>x-y).map(m=>MONTHS[m]).join(", ")} as ${state.boost}% busier. All other months count as normal.</li>`
+      ? `<li><strong>Busy seasons:</strong> ${state.busyCustom ? "you marked" : "we assumed Etsy's usual busy months,"} ${[...state.busyMonths].sort((x,y)=>x-y).map(m=>MONTHS[m]).join(", ")}${state.busyCustom ? "" : ","} as ${state.boost}% busier. All other months count as normal. ${state.busyCustom ? "" : "You can change this below."}</li>`
       : `<li><strong>Busy seasons:</strong> none set, so every month counts as normal.</li>`;
   $("method").innerHTML = `<ol>
     <li><strong>Starting point:</strong> your average monthly profit over the last ${f.recentCount} month${f.recentCount>1?"s":""}, with seasonal ups and downs removed, = <strong>${fmt(f.base)}</strong>. Profit means: what Etsy paid you after all fees and refunds, minus your material costs.</li>
     ${seasonText}
     <li><strong>Forecast for each month</strong> = starting point, adjusted by that month's busy-season effect (e.g. +30% makes it 30% higher).</li>
+    <li><strong>Not included:</strong> inflation, or price changes since the months it's based on. Over a few months this is usually small compared with the range shown.</li>
     <li><strong>Slow month / good month range:</strong> ±10% of the forecast, plus 2.5% more for every month further ahead, because the future is less certain the further out you look.</li>
   </ol>
   <p class="note">This is a simple, transparent model, not a crystal ball. New products, price changes, ads or Etsy fee changes will all change the real result.</p>`;
@@ -1023,7 +1081,7 @@ function whatIfModel(p){
   const material = state.costs[p.name] || 0;
   const profitAt = x => x * (1 - rate) - fixed - material;
   const breakEven = rate < 1 ? (fixed + material) / (1 - rate) : Infinity;
-  return { price, rate, fixed, material, profitAt, breakEven, units:p.units };
+  return { price, rate, fixed, material, profitAt, breakEven, units:p.units, hasCost: state.costs[p.name] !== undefined };
 }
 function setupWhatIf(a){
   const card = document.getElementById("whatifCard");
@@ -1045,7 +1103,7 @@ function resetSlider(){
   const m = whatIfModel(p);
   const slider = document.getElementById("wiSlider");
   const lo = Math.max(0.5, Math.floor(m.price * 0.5)), hi = Math.ceil(Math.max(m.price * 2, m.breakEven * 1.3));
-  slider.min = lo; slider.max = hi; slider.step = 0.5;
+  slider.min = lo; slider.max = hi; slider.step = "any";
   if (slider.dataset.name !== p.name){ slider.value = m.price; slider.dataset.name = p.name; }
   updateWhatIf();
 }
@@ -1084,15 +1142,16 @@ function updateWhatIf(){
       : `<p class="note">At ${fmt(newPrice)} you'd keep less per sale. You'd need to sell <strong>${Math.round(rise * 100)}% more</strong> (about ${whole(n * (1 + rise))} instead of ${whole(n)}) just to earn the same total as now.</p>`;
   }
 
+  const bc = m.hasCost ? "" : " (before your costs)";
   document.getElementById("wiStats").innerHTML = [
-    ["Price now", fmt(m.price)],
+    ["Price now (avg. paid, incl. shipping)", fmt(m.price)],
     ["New price", fmt(newPrice), true],
-    ["You keep per item now", `<span class="${cls(now)}">${fmt(now)}</span>`],
-    ["You'd keep per item", `<span class="${cls(next)}">${fmt(next)}</span>`, true],
-    ["Minimum price to not lose money", isFinite(m.breakEven) ? fmt(m.breakEven) : "n/a"],
+    [`You keep per item now${bc}`, `<span class="${cls(now)}">${fmt(now)}</span>`],
+    [`You'd keep per item${bc}`, `<span class="${cls(next)}">${fmt(next)}</span>`, true],
+    [m.hasCost ? "Minimum price to not lose money" : "Minimum price, before your costs", isFinite(m.breakEven) ? fmt(m.breakEven) : "n/a"],
     [label, value],
   ].map(([l, v, hl]) => `<div class="stat${hl ? " highlight" : ""}"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
-  document.getElementById("wiMsg").innerHTML = msg;
+  document.getElementById("wiMsg").innerHTML = (m.hasCost ? "" : `<div class="warn">✏️ <strong>${esc(p.name)}</strong> has no cost yet, so these numbers don't include your materials. Add its cost in the Products table.</div>`) + msg;
 
   // big price changes: customers often have a limit we can't see
   const change = m.price ? newPrice / m.price - 1 : 0;
@@ -1116,7 +1175,8 @@ function updateWhatIf(){
 
 /* ---------- plan a new product ---------- */
 let planRates = null;
-function setupPlan(a){ planRates = a.shopRates; updatePlan(); }
+let planProducts = [];
+function setupPlan(a){ planRates = a.shopRates; planProducts = a.productList.filter(p => state.costs[p.name] !== undefined); updatePlan(); }
 function updatePlan(){
   if (!planRates) return;
   const $ = id => document.getElementById(id);
@@ -1157,12 +1217,20 @@ function updatePlan(){
     ["Minimum price to not lose money", isFinite(minPrice) ? fmt(minPrice) : "n/a"],
     [`Per month (${qty} sales)`, `<span class="${tone}">${fmt(keep * qty)}</span>`],
   ].map(stat).join("");
-  const avg = r.keepShare;
+  // compare with the extremes only: your best and your worst product (only ones with a cost, so it's real profit)
+  let ext = "";
+  if (planProducts.length >= 2){
+    const best = planProducts.reduce((b, p) => p.margin > b.margin ? p : b), worst = planProducts.reduce((w, p) => p.margin < w.margin ? p : w);
+    const desc = p => p.profit < 0 ? "loses money" : `keeps ${pct(p.margin)}`;
+    ext = `<p style="margin:8px 0 0">Your <strong>best</strong> product, ${esc(best.name)}, ${desc(best)}. Your <strong>worst</strong>, ${esc(worst.name)}, ${desc(worst)}.</p>`;
+  } else if (planProducts.length === 1){
+    ext = `<p style="margin:8px 0 0">${esc(planProducts[0].name)}, your only product with a cost entered, ${planProducts[0].profit < 0 ? "loses money" : `keeps ${pct(planProducts[0].margin)}`}.</p>`;
+  }
   const verdict = level === "bad"
-    ? `<div class="warn strong">❌ At ${fmt(price)}, ${esc(name)} would <strong>lose ${fmt(-keep)} on every sale</strong>. Charge at least <strong>${fmt(minPrice)}</strong>, or make it for less.</div>`
+    ? `<div class="warn strong">❌ At ${fmt(price)}, ${esc(name)} would <strong>lose ${fmt(-keep)} on every sale</strong>. Charge at least <strong>${fmt(minPrice)}</strong>, or make it for less.${ext}</div>`
     : level === "thin"
-      ? `<div class="warn">⚠️ ${esc(name)} would only keep <strong>${fmt(keep)}</strong> (${pct(share)}) per sale. That's very thin: one refund or a small fee change wipes it out. Your shop overall keeps <strong>${pct(avg)}</strong>. Consider a higher price.</div>`
-      : `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✅ ${esc(name)} would keep <strong>${fmt(keep)}</strong> (${pct(share)}) per sale. Your shop overall keeps <strong>${pct(avg)}</strong>${share >= avg ? ", so this would be one of your better products." : ", so it's a bit below your average."}</div>`;
+      ? `<div class="warn">⚠️ ${esc(name)} would only keep <strong>${fmt(keep)}</strong> (${pct(share)}) per sale. That's very thin: one refund or a small fee change wipes it out. Consider a higher price.${ext}</div>`
+      : `<div class="warn" style="background:var(--accent-soft);color:var(--accent)">✅ ${esc(name)} would keep <strong>${fmt(keep)}</strong> (${pct(share)}) per sale.${ext}</div>`;
   $("planMsg").innerHTML = verdict + shipLine;
 }
 
@@ -1173,6 +1241,7 @@ function buildMonthPicker(){
   el.querySelectorAll("input").forEach(inp => inp.addEventListener("change", e => {
     const i = +e.target.value;
     if (e.target.checked) state.busyMonths.add(i); else state.busyMonths.delete(i);
+    state.busyCustom = true;
     e.target.parentElement.classList.toggle("on", e.target.checked);
     render();
   }));
@@ -1208,20 +1277,23 @@ function handleFiles(fileList){
       const rows = parseCSV(t);
       const head = (t.replace(/^\uFEFF/, "").split(/\r?\n/)[0] || "").toLowerCase();
       const quietMonth = !rows.length && /\btype\b/.test(head) && /\bnet\b/.test(head);
-      return { name:f.name, kind: quietMonth ? "statement" : detectKind(rows), rows, quietMonth };
+      return { name:f.name, kind: quietMonth ? "statement" : detectKind(rows), rows, quietMonth, text:t };
     });
   })).then(parsed => {
     for (const p of parsed){
       p.problem = checkFile(p);
       if (p.problem && p.problem.level === "error") p.kind = "unknown";
       state.files = state.files.filter(x => x.name !== p.name);
+      // the same download added twice (e.g. "statement.csv" and "statement (1).csv") must only count once
+      const twin = p.text && state.files.find(x => x.text === p.text && x.kind !== "duplicate");
+      if (twin){ p.kind = "duplicate"; p.problem = { level:"warn", text:`<strong>${esc(p.name)}</strong> is the same file as <strong>${esc(twin.name)}</strong>, so it's only counted once.` }; }
       state.files.push(p);
     }
     showFileList();
   });
 }
 function showFileList(){
-  const labels = { statement:"✅ Monthly statement", items:"✅ Order Items", unknown:"❌ Can't use this file" };
+  const labels = { statement:"✅ Monthly statement", items:"✅ Order Items", unknown:"❌ Can't use this file", duplicate:"↩️ Already added" };
   document.getElementById("fileList").innerHTML = state.files.map(f => `<li>${labels[f.kind]}: ${esc(f.name)}${f.notCsv ? "" : ` (${f.rows.length} row${f.rows.length === 1 ? "" : "s"})`}</li>`).join("");
   document.getElementById("fileProblems").innerHTML = state.files.filter(f => f.problem)
     .map(f => `<div class="warn">${f.problem.level === "error" ? "⚠️" : "ℹ️"} ${f.problem.text}</div>`).join("");
