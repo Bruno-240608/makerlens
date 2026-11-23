@@ -279,6 +279,7 @@ input[type=range]{accent-color:var(--accent)}
       <p class="sub" id="periodText"></p>
       <div class="grid" id="stats"></div>
       <div id="currencyNote"></div>
+      <div id="dataNote"></div>
       <div id="materialsNote"></div>
     </div>
     <div class="card">
@@ -434,9 +435,10 @@ function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&l
 function sum(arr){ return arr.reduce((a,b)=>a+b,0); }
 function avg(arr){ return arr.length ? sum(arr)/arr.length : 0; }
 function fmt(n, opts={}){
+  const digits = opts.round ? 0 : 2;
+  if (Math.abs(n) < 0.5 * Math.pow(10, -digits)) n = 0; // never show "−$0"
   const sign = n < 0 ? "−" : (opts.plus && n > 0 ? "+" : "");
   const abs = Math.abs(n);
-  const digits = opts.round ? 0 : 2;
   return sign + state.currency + abs.toLocaleString("en-US",{minimumFractionDigits:digits, maximumFractionDigits:digits});
 }
 // "How busy vs a normal month", in words a seller understands (no "+184%")
@@ -583,7 +585,14 @@ function analyze(){
   const totalFees = sum(Object.values(fees)); // negative number
   // a quiet month (no rows) is still a month: fill gaps so "last 6 months" really means 6 months
   const stmtKeys = Object.keys(months).sort();
-  if (stmtKeys.length) for (let k = stmtKeys[0]; k < stmtKeys.at(-1); k = nextKey(k, 1)) ensure(k);
+  const itemMonths = new Set(state.itemRows.map(r => parseDate(col(r, "Sale Date", "Date Paid", "Date"))).filter(Boolean).map(monthKey));
+  const missingMonths = [];
+  if (stmtKeys.length) for (let k = stmtKeys[0]; k < stmtKeys.at(-1); k = nextKey(k, 1)){
+    if (months[k]) continue;
+    if (itemMonths.has(k)) missingMonths.push(k); // you had orders that month, so the statement is missing: don't pretend it was $0
+    else ensure(k);
+  }
+  state.missingMonths = missingMonths;
   const statementMonths = new Set(Object.keys(months));
 
   // 2) Order Items: which products sold, and material costs
@@ -594,7 +603,11 @@ function analyze(){
   // and the discount (and shipping, and sales tax) for the whole order sits on the order's first line only.
   const lines = [], byOrder = {};
   let dropped = 0;
+  const seenLines = new Set();
   for (const r of state.itemRows){
+    const lineKey = col(r, "Transaction ID") || [col(r, "Order ID"), col(r, "Item Name", "Title"), col(r, "Quantity"), col(r, "Item Total"), col(r, "Sale Date", "Date")].join("|");
+    if (seenLines.has(lineKey)) continue; // same line in two overlapping Order Items files
+    seenLines.add(lineKey);
     const qty = parseFloat(col(r, "Quantity")) || 1;
     let total = money(col(r, "Item Total"));
     if (!total) total = money(col(r, "Price")) * qty;
@@ -631,6 +644,8 @@ function analyze(){
     if (convert && saleByOrder[oid] && paid > 0){ fx[oid] = saleByOrder[oid] / paid; fxSale += saleByOrder[oid]; fxPaid += paid; }
   }
   const avgFx = fxPaid ? fxSale / fxPaid : 1;
+  let shipIncome = 0;
+  for (const [oid, ls] of Object.entries(byOrder)) shipIncome += sum(ls.map(l => l.shipping)) * (convert ? (fx[oid] || avgFx) : 1);
   state.currencyNote = convert ? { itemCur, stmtCur, matched: Object.keys(fx).length, orders: Object.keys(byOrder).length } : null;
 
   for (const l of lines){
@@ -674,7 +689,8 @@ function analyze(){
   }
   // shop-wide costs (monthly ads, subscription) don't change when one price changes -> fixed
   for (const p of productList) charge(p, shopWide * (itemRevenue ? p.revenue / itemRevenue : 0), "fixed");
-  const feeSplit = { linked, shopWide, otherOrders, exact: costLines.length > 0 && linked !== 0 };
+  const otherSales = hasOrderIds ? sum(Object.entries(saleByOrder).filter(([oid]) => !orders[oid]).map(([, v]) => v)) : 0;
+  const feeSplit = { linked, shopWide, otherOrders, otherSales, exact: costLines.length > 0 && linked !== 0 };
 
   for (const p of productList){
     p.materials = (state.costs[p.name] || 0) * p.units;
@@ -691,9 +707,10 @@ function analyze(){
   const profit = payout - materials;
 
   // Shop-wide rates, used to estimate a product that hasn't sold yet
-  const pctBuckets = ["Payment processing", "Transaction fees", "Ads & marketing", "Tax on fees"];
-  const pctTotal = sum(Object.entries(fees).filter(([k]) => pctBuckets.includes(k)).map(([, v]) => v)) + refunds;
-  const fixedTotal = totalFees - sum(Object.entries(fees).filter(([k]) => pctBuckets.includes(k)).map(([, v]) => v));
+  // fees that grow with the price are the ones tied to an order (transaction, processing, offsite ads, refunds);
+  // shop-wide costs like monthly Etsy Ads don't change when you change one price, so they're fixed
+  const pctTotal = sum(costLines.filter(c => c.kind === "pct" && c.order).map(c => c.amount));
+  const fixedTotal = (totalFees + refunds) - pctTotal;
   const saleCount = state.statementRows.filter(r => (col(r, "Type") || "").toLowerCase() === "sale").length;
   const unitsSold = hasItems ? sum(productList.map(p => p.units)) : saleCount;
   const salesBase = hasItems ? itemRevenue : gross;
@@ -701,7 +718,9 @@ function analyze(){
     // per-product numbers already have each order's fees, and shop-wide costs (like Etsy Ads) as fixed
     pctRate: itemRevenue ? -sum(productList.map(p => p.pctFees)) / itemRevenue : 0,
     fixedPerItem: unitsSold ? -sum(productList.map(p => p.fixedFees)) / unitsSold : 0,
+    shipPerItem: unitsSold ? shipIncome / unitsSold : 0,   // shipping your buyers pay, per item
   } : {
+    shipPerItem: 0,
     pctRate: salesBase ? -pctTotal / salesBase : 0,        // share of each price lost to %-based fees
     fixedPerItem: unitsSold ? -fixedTotal / unitsSold : 0, // fixed fees per item sold
   };
@@ -781,7 +800,8 @@ function forecast(a){
 
   // Base = average of the last (up to) 6 months, with the seasonal effect removed
   const recent = keys.slice(-6);
-  const base = avg(recent.map(k => months[k].sales > 0 ? months[k].profit / factor[+k.slice(5) - 1] : months[k].profit));
+  // total profit ÷ total "busyness" of those months: a nearly-empty month can't explode the average
+  const base = sum(recent.map(k => months[k].profit)) / sum(recent.map(k => factor[+k.slice(5) - 1]));
 
   const rows = [];
   const last = keys[keys.length - 1];
@@ -846,6 +866,13 @@ function render(){
   }
 
   const cn = state.currencyNote;
+  // tell the seller when files don't line up, instead of silently guessing
+  const notes = [];
+  if (state.missingMonths && state.missingMonths.length && !state.isSample)
+    notes.push(`<div class="warn">⚠️ <strong>Missing statement${state.missingMonths.length > 1 ? "s" : ""}:</strong> your Order Items file has sales in ${state.missingMonths.map(k => MONTHS_LONG[+k.slice(5)-1] + " " + k.slice(0,4)).join(", ")}, but you didn't add the monthly statement for ${state.missingMonths.length > 1 ? "those months" : "that month"}. ${state.missingMonths.length > 1 ? "They're" : "It's"} left out of everything (not counted as ${fmt(0,{round:true})}). Add ${state.missingMonths.length > 1 ? "those statements" : "that statement"} for complete numbers.</div>`);
+  if (state.itemsDropped && !state.isSample)
+    notes.push(`<p class="note">ℹ️ ${state.itemsDropped} order item${state.itemsDropped > 1 ? "s" : ""} from months your statements don't cover ${state.itemsDropped > 1 ? "were" : "was"} left out, so products match the months you uploaded.</p>`);
+  $("dataNote").innerHTML = notes.join("");
   $("currencyNote").innerHTML = cn && !state.isSample ? `<p class="note">ℹ️ Your Etsy statement is in <strong>${esc(cn.stmtCur)}</strong> but your orders are in <strong>${esc(cn.itemCur)}</strong>. Everything is shown in ${esc(cn.stmtCur)}: each order is converted at the rate Etsy actually used for it (${cn.matched} of ${cn.orders} orders matched; the rest use your average rate).</p>` : "";
   if (!navigator.onLine && !state.isSample) state.analyzedOffline = true; // keep the proof even after reconnecting
   showOffline();
@@ -908,7 +935,7 @@ function render(){
     const pctLinked = (a.feeSplit.linked + a.feeSplit.shopWide) ? a.feeSplit.linked / (a.feeSplit.linked + a.feeSplit.shopWide) : 0;
     $("feeNote").innerHTML = a.feeSplit.exact
       ? `ℹ️ <strong>How exact is this?</strong> <strong>${Math.round(pctLinked * 100)}%</strong> of your fees and refunds are matched to the exact order they came from (so a shipping label is charged to the item that was shipped). The rest (shop-wide costs like monthly Etsy Ads) is shared between products by their sales.`
-        + (a.feeSplit.otherOrders ? ` <strong>${fmt(a.feeSplit.otherOrders)}</strong> of fees and refunds belong to orders that aren't in your Order Items file (often orders from an earlier month), so they count in your shop's total profit but not in this table. Add the Order Items file for those months to include them.` : "")
+        + ((a.feeSplit.otherOrders || a.feeSplit.otherSales) ? ` Some orders in your statements aren't in your Order Items file (often orders from an earlier month): <strong>${fmt(a.feeSplit.otherSales)}</strong> of sales and <strong>${fmt(a.feeSplit.otherOrders)}</strong> of their fees and refunds. They count in your shop's total profit but not in this table, so the table adds up to less than your shop total. Add the Order Items file for those months to include them.` : "")
       : `ℹ️ <strong>How exact is this?</strong> Etsy fees and refunds are shared between products by their sales. That part is an estimate, because we couldn't match fees to individual orders in your files.`;
     // one-line summary so losing products are seen first, even with lots of products
     const losers = a.productList.filter(p => p.profit < 0).sort((x, y) => x.profit - y.profit);
@@ -1027,14 +1054,16 @@ function renderForecast(a){
     }).join("");
   // one plain sentence when the forecast looks surprising next to last year
   // one plain message that puts both comparisons side by side, so they don't seem to contradict each other
-  const n = f.rows.length, next = sum(f.rows.map(r => r.value));
+  const n = f.rows.length;
   const pastKeys = a.keys.slice(-n), past = sum(pastKeys.map(k => a.months[k].profit));
+  // compare like with like: if there are fewer past months than forecast months, compare the same number of months
+  const next = sum(f.rows.slice(0, pastKeys.length).map(r => r.value));
   const busyAhead = avg(f.rows.map(r => r.factor)) > avg(pastKeys.map(k => f.factor[+k.slice(5) - 1])) + 0.1;
   const change = (x, y) => Math.abs(y) > 0.01 ? (x - y) / Math.abs(y) : null;
   const parts = [];
   const vsPast = change(next, past);
   if (vsPast !== null && Math.abs(vsPast) >= 0.1)
-    parts.push(`Your next ${n} months look <strong>${Math.round(Math.abs(vsPast) * 100)}% ${vsPast > 0 ? "better" : "worse"} than your last ${n}</strong> (${fmt(past,{round:true})})${busyAhead && vsPast > 0 ? ", mostly because they include your busy season" : ""}.`);
+    parts.push(`Your next ${pastKeys.length === 1 ? "month looks" : pastKeys.length + " months look"} <strong>${Math.round(Math.abs(vsPast) * 100)}% ${vsPast > 0 ? "better" : "worse"} than your last ${pastKeys.length === 1 ? "month" : pastKeys.length + " months"}</strong> (${fmt(past,{round:true})})${busyAhead && vsPast > 0 ? ", mostly because they include your busy season" : ""}.`);
   const vy = f.vsLastYear;
   if (vy && f.basedOn === "recent"){
     const d = change(vy.now, vy.then);
@@ -1192,11 +1221,13 @@ function updatePlan(){
     $("planStats").innerHTML = ""; $("planMsg").innerHTML = `<p class="note">Type a price and what one costs you to make.</p>`;
     return;
   }
-  const afterEtsy = price * (1 - r.pctRate) - r.fixedPerItem; // what's left after Etsy and shipping, before your costs
+  // the seller types the item price; buyers also pay shipping on top (your shop's average), and labels are a fixed cost
+  const ship = r.shipPerItem || 0;
+  const afterEtsy = (price + ship) * (1 - r.pctRate) - r.fixedPerItem; // what's left after Etsy and shipping, before your costs
   const keep = afterEtsy - cost;
   const share = keep / price;
-  const minPrice = r.pctRate < 1 ? (r.fixedPerItem + cost) / (1 - r.pctRate) : Infinity;
-  const shipLine = `<p class="note" style="margin-top:6px">Includes about <strong>${fmt(r.fixedPerItem)}</strong> per item for shipping labels and other fixed Etsy costs (your shop's average). If this product ships differently, the real number will differ.</p>`;
+  const minPrice = r.pctRate < 1 ? Math.max(0, (r.fixedPerItem + cost) / (1 - r.pctRate) - ship) : Infinity;
+  const shipLine = `<p class="note" style="margin-top:6px">${ship > 0.005 ? `Assumes your buyers pay about <strong>${fmt(ship)}</strong> shipping per item, and ` : "Includes "}about <strong>${fmt(r.fixedPerItem)}</strong> per item for shipping labels and other fixed Etsy costs (your shop's averages). If this product ships differently, the real number will differ.</p>`;
   const stat = ([l, v, hl]) => `<div class="stat${hl ? " highlight" : ""}"><div class="label">${l}</div><div class="value">${v}</div></div>`;
 
   // Before the seller tells us the cost: only show what's left after Etsy. No verdict, no green.
