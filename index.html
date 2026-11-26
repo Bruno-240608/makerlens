@@ -220,7 +220,7 @@ input[type=range]{accent-color:var(--accent)}
           <li><strong>Your files are read on your computer.</strong> All the maths happens in your own browser. Your Etsy files are never uploaded, to me or anyone else.</li>
           <li><strong>What's saved:</strong> only the product costs you type in and your currency, kept in your own browser so you don't have to retype them. You can delete them any time.</li>
           <li><strong>What's never collected:</strong> your files, sales, customer names or anything else from Etsy. There's no account, no database and no AI involved.</li>
-          <li><strong>Visit counter:</strong> I count page visits with GoatCounter, which uses no cookies and doesn't track you. It only knows a page was opened, never anything about your files.</li>
+          <li><strong>Visit counter:</strong> I count page visits with GoatCounter, which uses no cookies and doesn't track you. It also counts when someone clicks "Try with sample data" or "Analyze my shop", so I know how many people use it. It only gets the name of the button, never anything from your files.</li>
           <li><strong>Feedback form:</strong> optional, it's a Google Form and doesn't collect your email.</li>
           <li><strong>Check it yourself:</strong> the full code is public <a href="https://github.com/Bruno-240608/makerlens" target="_blank" rel="noopener">on GitHub</a>.</li>
         </ul>
@@ -1335,7 +1335,12 @@ function showFileList(){
   document.getElementById("analyzeBtn").disabled = !hasStatement;
   document.getElementById("analyzeBtn").textContent = hasStatement && !hasItemsFile ? "Analyze without per-product profit" : "Analyze my shop";
 }
+// Count how many people actually use it (only the name of the action is sent, never anything from the files)
+function countUse(name, title){
+  try{ if (window.goatcounter && window.goatcounter.count) window.goatcounter.count({ path:name, title, event:true }); }catch(e){}
+}
 function startAnalysis(){
+  countUse("analyzed-own-files", "Analyzed their own Etsy files");
   state.statementRows = state.files.filter(f => f.kind === "statement").flatMap(f => f.rows);
   state.itemRows = state.files.filter(f => f.kind === "items").flatMap(f => f.rows);
   state.isSample = false;
@@ -1445,6 +1450,7 @@ document.getElementById("footPrivacy").addEventListener("click", () => {
 });
 document.getElementById("previewCard").addEventListener("click", () => document.getElementById("trySample").click());
 document.getElementById("trySample").addEventListener("click", () => {
+  countUse("tried-sample", "Tried the sample data");
   const s = makeSample();
   state.statementRows = parseCSV(s.statementCSV);
   state.itemRows = parseCSV(s.itemsCSV);
